@@ -1,0 +1,71 @@
+{
+  "name": "opentrade-monorepo",
+  "version": "1.0.0-alpha.1",
+  "private": true,
+  "description": "OpenTrade - Open Source AI Trading System",
+  "homepage": "https://opentrade.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opentrade-ai/opentrade.git"
+  },
+  "license": "MIT",
+  "author": "OpenTrade Contributors",
+  "keywords": [
+    "trading",
+    "ai",
+    "cryptocurrency",
+    "bot",
+    "algorithmic-trading"
+  ],
+  "bugs": {
+    "url": "https://github.com/opentrade-ai/opentrade/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "build:web": "pnpm --filter opentrade-web build",
+    "build:sdk": "pnpm --filter opentrade-sdk build",
+    "dev": "turbo run dev",
+    "dev:web": "pnpm --filter opentrade-web dev",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md}\"",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "release": "changesets version && pnpm install",
+    "release:alpha": "pnpm build && pnpm npm publish --tag alpha",
+    "release:beta": "pnpm build && pnpm npm publish --tag beta",
+    "release:latest": "pnpm build && pnpm npm publish"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.5.0",
+    "@changesets/cli": "^2.27.0",
+    "@types/node": "^20.11.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.0",
+    "turbo": "^1.12.0",
+    "typescript": "^5.3.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "react": "^18.2.0",
+      "react-dom": "^18.2.0"
+    },
+    "packageExtensions": {
+      "eslint-plugin-react-hooks": {
+        "peerDependencies": {
+          "react": "^18.2.0"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  opentrade:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: opentrade
+    restart: unless-stopped
+    ports:
+      - "18790:18790"
+      - "3000:3000"
+    environment:
+      - OPENTRADE_MODE=${OPENTRADE_MODE:-paper}
+      - OPENTRADE_DB_URL=postgresql+asyncpg://opentrade:password@postgres:5432/opentrade
+      - OPENTRADE_REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./config.yaml:/root/.opentrade/config.yaml:ro
+      - ./data:/root/.opentrade/data
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - opentrade-net
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: opentrade-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=opentrade
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=opentrade
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - opentrade-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: opentrade-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - opentrade-net
+
+  pgadmin:
+    image: dpage/pgadmin8:latest
+    container_name: opentrade-pgadmin
+    restart: unless-stopped
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@opentrade.local
+      - PGADMIN_DEFAULT_PASSWORD=password
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - opentrade-net
+
+volumes:
+  postgres-data:
+  redis-data:
+  pgadmin-data:
+
+networks:
+  opentrade-net:
+    driver: bridge
