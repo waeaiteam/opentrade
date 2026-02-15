@@ -197,8 +197,9 @@ rate-limit = [
 
 [project.scripts]
 opentrade = "opentrade.cli.__main__:main"
-opentrade-gateway = "opentrade.cli.gateway:run"
-opentrade-trade = "opentrade.cli.trade:run"
+opentrade-gateway = "opentrade.cli.gateway:main"
+opentrade-trade = "opentrade.cli.trade:main"
+opentrade-doctor = "opentrade.cli.doctor:main"
 opentrade-backtest = "opentrade.cli.backtest:run"
 
 [project.urls]

@@ -506,17 +506,74 @@ def _config_reset():
 @app.command()
 def doctor(
     fix: bool = Option(False, "-f", "--fix", help="自动修复"),
-    migrate: bool = Option(False, "-m", "--migrate", help="数据库迁移"),
+    json_output: bool = Option(False, "--json", help="JSON 输出"),
+    verbose: bool = Option(False, "-v", "--verbose", help="详细输出"),
 ):
-    """系统诊断"""
-    from opentrade.cli.doctor import run_diagnosis
+    """系统诊断与健康检查"""
+    from opentrade.cli.doctor import main as doctor_main
+    import sys
 
-    issues = run_diagnosis(fix=fix)
+    # 模拟 typer 解析
+    sys.argv = ["opentrade", "doctor"]
+    if fix:
+        sys.argv.append("--fix")
+    if json_output:
+        sys.argv.append("--json")
+    if verbose:
+        sys.argv.append("-v")
 
-    if not issues:
-        print("\n[green]✅ 系统健康！[/green]")
-    else:
-        print(f"\n[yellow]发现 {len(issues)} 个问题[/yellow]")
+    doctor_main()
+
+
+@app.command()
+def gateway(
+    host: str = Option("0.0.0.0", "-h", "--host", help="绑定地址"),
+    port: int = Option(8000, "-p", "--port", help="HTTP 端口"),
+    ws_port: int = Option(18790, "-w", "--ws-port", help="WebSocket 端口"),
+    daemon: bool = Option(False, "-d", "--daemon", help="后台运行"),
+    check: bool = Option(False, "--check", help="仅检查依赖"),
+):
+    """启动网关服务 (REST API + WebSocket)"""
+    from opentrade.cli.gateway import main as gateway_main
+    import sys
+
+    sys.argv = ["opentrade", "gateway"]
+    sys.argv.extend(["--host", host])
+    sys.argv.extend(["--port", str(port)])
+    sys.argv.extend(["--ws-port", str(ws_port)])
+    if daemon:
+        sys.argv.append("--daemon")
+    if check:
+        sys.argv.append("--check")
+
+    gateway_main()
+
+
+@app.command()
+def trade(
+    mode: str = Option("paper", "-m", "--mode", help="模式: paper/live"),
+    strategy: str = Option(None, "-s", "--strategy", help="策略 ID"),
+    symbol: str = Option("BTC/USDT", "-S", "--symbol", help="交易对"),
+    max_cycles: int = Option(0, "-c", "--max-cycles", help="最大循环次数"),
+    interval: int = Option(60, "-i", "--interval", help="循环间隔秒数"),
+    dry_run: bool = Option(False, "-n", "--dry-run", help="仅模拟，不执行"),
+):
+    """执行 AI 交易策略"""
+    from opentrade.cli.trade import main as trade_main
+    import sys
+
+    sys.argv = ["opentrade", "trade"]
+    sys.argv.extend(["--mode", mode])
+    if strategy:
+        sys.argv.extend(["--strategy", strategy])
+    sys.argv.extend(["--symbol", symbol])
+    if max_cycles > 0:
+        sys.argv.extend(["--max-cycles", str(max_cycles)])
+    sys.argv.extend(["--interval", str(interval)])
+    if dry_run:
+        sys.argv.append("--dry-run")
+
+    trade_main()
 
 
 @app.command()

@@ -12,8 +12,8 @@ if _package_dir.parent not in sys.path:
 def main():
     """CLI 入口点"""
     try:
-        from .cli import app
-        from .cli.utils import setup_logging
+        from .app import app
+        from .utils import setup_logging
 
         setup_logging()
         app()
