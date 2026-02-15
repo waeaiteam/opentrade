@@ -1,13 +1,25 @@
 """
-OpenTrade Plugins Package
+OpenTrade Plugins Module
 """
 
-from opentrade.plugins.base import BasePlugin, PluginRegistry
-from opentrade.plugins.exchanges import ExchangePlugin, get_exchange
+from opentrade.plugins.manager import (
+    PluginManager,
+    BasePlugin,
+    StrategyPlugin,
+    PluginMetadata,
+    Permission,
+    PermissionGrant,
+    BuiltInStrategies,
+    create_plugin_manager,
+)
 
 __all__ = [
+    "PluginManager",
     "BasePlugin",
-    "PluginRegistry",
-    "ExchangePlugin",
-    "get_exchange",
+    "StrategyPlugin",
+    "PluginMetadata",
+    "Permission",
+    "PermissionGrant",
+    "BuiltInStrategies",
+    "create_plugin_manager",
 ]
