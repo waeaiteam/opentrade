@@ -13,8 +13,8 @@ def main():
     """CLI 入口点"""
     try:
         from .cli import app
-        from .cli.utils import handle_exceptions, setup_logging
-        
+        from .cli.utils import setup_logging
+
         setup_logging()
         app()
     except KeyboardInterrupt:

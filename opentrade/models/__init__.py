@@ -2,13 +2,6 @@
 OpenTrade Models Package
 """
 
-from opentrade.models.trade import (
-    Trade,
-    TradeSide,
-    TradeAction,
-    TradeStatus,
-    CloseReason,
-)
 from opentrade.models.position import (
     Position,
     PositionSide,
@@ -16,10 +9,17 @@ from opentrade.models.position import (
 )
 from opentrade.models.strategy import (
     Strategy,
+    StrategyEvolution,
     StrategyStatus,
     StrategyType,
     StrategyVersion,
-    StrategyEvolution,
+)
+from opentrade.models.trade import (
+    CloseReason,
+    Trade,
+    TradeAction,
+    TradeSide,
+    TradeStatus,
 )
 
 __all__ = [

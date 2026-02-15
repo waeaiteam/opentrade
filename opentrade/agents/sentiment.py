@@ -2,7 +2,6 @@
 OpenTrade Sentiment Agent - 情绪分析
 """
 
-from typing import Optional
 
 from opentrade.agents.base import BaseAgent, MarketState
 
@@ -13,22 +12,22 @@ class SentimentAgent(BaseAgent):
     负责市场情绪分析，包括恐惧贪婪指数、
     社交媒体情绪、新闻情绪等。
     """
-    
+
     @property
     def name(self) -> str:
         return "sentiment_agent"
-    
+
     @property
     def description(self) -> str:
         return "情绪分析专家，解读市场恐惧与贪婪"
-    
+
     async def analyze(self, state: MarketState) -> dict:
         """情绪分析"""
         score = 0.0
         reasons = []
         confidence = 0.55
         is_extreme = False
-        
+
         # 恐惧贪婪指数
         fg = state.fear_greed_index
         if fg <= 25:
@@ -47,7 +46,7 @@ class SentimentAgent(BaseAgent):
             reasons.append(f"贪婪: {fg}/100")
         else:
             score += 0.05  # 中性偏多
-        
+
         # 社交情绪
         sentiment = state.social_sentiment
         if sentiment > 0.3:
@@ -56,7 +55,7 @@ class SentimentAgent(BaseAgent):
         elif sentiment < -0.3:
             score += 0.1
             reasons.append("社交情绪偏空")
-        
+
         # Twitter 讨论量
         twitter_vol = state.twitter_volume
         if twitter_vol > 50000:
@@ -65,7 +64,7 @@ class SentimentAgent(BaseAgent):
                 reasons.append("高讨论 + 乐观情绪")
             else:
                 score += 0.05
-        
+
         # VIX 指数 (市场恐慌指标)
         vix = state.vix_index
         if vix > 30:
@@ -74,10 +73,10 @@ class SentimentAgent(BaseAgent):
         elif vix < 15:
             score -= 0.1
             reasons.append(f"VIX低位: {vix:.1f} (自满)")
-        
+
         # 标准化
         score = max(-1, min(1, score / 4))
-        
+
         return {
             "signal_score": score,
             "confidence": confidence,

@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -35,24 +34,24 @@ class MarketState:
     symbol: str
     price: float
     timestamp: datetime
-    
+
     # OHLCV
     ohlcv_5m: dict = field(default_factory=dict)
     ohlcv_15m: dict = field(default_factory=dict)
     ohlcv_1h: dict = field(default_factory=dict)
     ohlcv_4h: dict = field(default_factory=dict)
-    
+
     # 订单簿
     orderbook: dict = field(default_factory=dict)
-    
+
     # 资金费率
     funding_rate: float = 0.0
-    funding_time: Optional[datetime] = None
-    
+    funding_time: datetime | None = None
+
     # 持仓量
     open_interest: float = 0.0
     open_interest_change: float = 0.0
-    
+
     # 技术指标
     ema_fast: float = 0.0
     ema_slow: float = 0.0
@@ -66,24 +65,24 @@ class MarketState:
     atr: float = 0.0
     volume: float = 0.0
     volume_ratio: float = 1.0
-    
+
     # 链上数据
     exchange_net_flow: float = 0.0
     whale_transactions: int = 0
     stablecoin_mint: float = 0.0
-    
+
     # 情绪数据
     fear_greed_index: int = 50
     social_sentiment: float = 0.0
     twitter_volume: int = 0
-    
+
     # 宏观数据
     dxy_index: float = 0.0
     sp500_change: float = 0.0
     gold_price: float = 0.0
     bond_yield_10y: float = 0.0
     vix_index: float = 0.0
-    
+
     def to_prompt_format(self) -> str:
         """转换为 AI prompt 格式"""
         return f"""
@@ -130,35 +129,35 @@ class TradeDecision:
     symbol: str
     size: float  # 仓位大小 (0-1 代表资金比例)
     leverage: float = 1.0
-    
+
     # 止盈止损
-    stop_loss: Optional[float] = None
-    stop_loss_pct: Optional[float] = None
-    take_profit: Optional[float] = None
-    take_profit_pct: Optional[float] = None
-    
+    stop_loss: float | None = None
+    stop_loss_pct: float | None = None
+    take_profit: float | None = None
+    take_profit_pct: float | None = None
+
     # 置信度
     confidence: SignalConfidence = field(default_factory=lambda: SignalConfidence(
         overall=0.5, technical=0.5, fundamental=0.5, sentiment=0.5
     ))
-    
+
     # 理由
     reasons: list[str] = field(default_factory=list)
-    
+
     # 元数据
-    strategy_id: Optional[str] = None
-    strategy_name: Optional[str] = None
+    strategy_id: str | None = None
+    strategy_name: str | None = None
     strategy_version: str = "1.0.0"
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    
+
     # 风险评估
     risk_score: float = 0.5  # 0-1, 越高风险越大
     max_loss_pct: float = 1.0
-    
+
     # 验证状态
     risk_check_passed: bool = False
     validation_errors: list[str] = field(default_factory=list)
-    
+
     def to_dict(self) -> dict:
         """转换为字典"""
         return {
@@ -184,24 +183,24 @@ class TradeDecision:
 
 class BaseAgent(ABC):
     """AI Agent 基类"""
-    
+
     @property
     @abstractmethod
     def name(self) -> str:
         """Agent 名称"""
         pass
-    
+
     @property
     @abstractmethod
     def description(self) -> str:
         """Agent 描述"""
         pass
-    
+
     @abstractmethod
     async def analyze(self, market_state: MarketState) -> dict:
         """分析方法"""
         pass
-    
+
     async def get_system_prompt(self) -> str:
         """获取系统提示词"""
         return f"""

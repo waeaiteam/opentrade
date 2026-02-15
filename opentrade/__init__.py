@@ -9,12 +9,12 @@ https://github.com/opentrade-ai/opentrade
 
 __version__ = "1.0.0a1"
 
+from opentrade.agents.coordinator import CoordinatorAgent
 from opentrade.core.config import get_config, settings
 from opentrade.core.database import db, init_db
-from opentrade.agents.coordinator import CoordinatorAgent
-from opentrade.services.trade_executor import TradeExecutor
 from opentrade.services.data_service import data_service
 from opentrade.services.notification_service import notification_service
+from opentrade.services.trade_executor import TradeExecutor
 
 __all__ = [
     # 版本

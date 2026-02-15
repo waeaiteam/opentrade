@@ -22,7 +22,6 @@ Commands:
 """
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich import print
@@ -31,8 +30,9 @@ from typer import Argument, Option
 
 from opentrade import __version__
 from opentrade.cli.utils import (
-    handle_exceptions, setup_logging, get_config_path,
-    save_token, load_token
+    get_config_path,
+    handle_exceptions,
+    setup_logging,
 )
 
 app = typer.Typer(
@@ -59,7 +59,7 @@ def version_callback(value: bool):
 @handle_exceptions
 def main(
     ctx: typer.Context,
-    config: Optional[Path] = Option(
+    config: Path | None = Option(
         None, "-c", "--config", help="配置文件路径"
     ),
     verbose: bool = Option(
@@ -72,7 +72,7 @@ def main(
     """OpenTrade - 开源 AI 交易系统"""
     # 设置日志
     setup_logging(verbose=verbose)
-    
+
     # 加载配置
     if config:
         # TODO: 加载指定配置文件
@@ -85,22 +85,22 @@ def init(
 ):
     """初始化 OpenTrade 配置"""
     from opentrade.core.config import ConfigManager
-    
+
     config_dir = Path.home() / ".opentrade"
     config_file = config_dir / "config.yaml"
-    
+
     if config_file.exists() and not force:
         print(f"[yellow]配置文件已存在: {config_file}[/yellow]")
         print("使用 [bold]opentrade init --force[/bold] 重新初始化")
         raise typer.Exit(1)
-    
+
     # 创建配置目录
     config_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 生成默认配置
     config = ConfigManager.generate_default()
     config.to_file(config_file)
-    
+
     print(Panel(
         f"[green]✅ OpenTrade 初始化完成！[/green]\n\n"
         f"📁 配置文件: {config_file}\n\n"
@@ -122,25 +122,25 @@ def gateway(
 ):
     """启动 OpenTrade 网关服务"""
     from opentrade.cli.gateway import run_gateway
-    
+
     if daemon:
         import subprocess
         import sys
-        
+
         # 后台启动
         cmd = [sys.executable, "-m", "opentrade.cli.gateway", str(port), host]
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"[green]✅ 网关已在后台启动: ws://{host}:{port}[/green]")
         raise typer.Exit(0)
-    
+
     # 前台运行
-    print(f"[bold]🚀 启动 OpenTrade 网关...[/bold]")
+    print("[bold]🚀 启动 OpenTrade 网关...[/bold]")
     print(f"   地址: ws://{host}:{port}")
     print(f"   Web:  http://{host}:3000")
     print()
     print("[dim]按 Ctrl+C 停止[/dim]")
     print()
-    
+
     run_gateway(port=port, host=host)
 
 
@@ -149,40 +149,40 @@ def trade(
     mode: str = Argument(
         default="paper", help="交易模式: paper(模拟) / live(实盘)"
     ),
-    strategy: Optional[str] = Option(
+    strategy: str | None = Option(
         None, "-s", "--strategy", help="指定策略"
     ),
-    symbol: Optional[str] = Option(
+    symbol: str | None = Option(
         None, "-S", "--symbol", help="交易标的"
     ),
     leverage: float = Option(1.0, "-l", "--leverage", help="杠杆倍数"),
 ):
     """启动交易机器人"""
-    from opentrade.services.trade_executor import TradeExecutor
     from opentrade.services.strategy_service import StrategyService
-    
+    from opentrade.services.trade_executor import TradeExecutor
+
     if mode not in ["paper", "live"]:
         print(f"[red]无效模式: {mode}[/red]")
         print("有效模式: paper, live")
         raise typer.Exit(1)
-    
+
     print(f"[bold]🚀 启动交易模式: {mode}[/bold]")
-    
+
     if mode == "paper":
         print("[yellow]⚠️  模拟交易模式 - 不涉及真实资金[/yellow]")
     else:
         print("[red]⚠️  实盘交易模式 - 涉及真实资金！[/red]")
         if not typer.confirm("确认启动实盘交易？"):
             raise typer.Exit(0)
-    
+
     # 初始化
     executor = TradeExecutor(mode=mode)
-    
+
     if strategy:
         service = StrategyService()
         strat = service.load_strategy(strategy)
         print(f"[green]加载策略: {strat.name}[/green]")
-    
+
     # 启动交易循环
     executor.start(symbol=symbol, leverage=leverage)
 
@@ -197,20 +197,21 @@ def backtest(
     report: bool = Option(False, "-r", "--report", help="生成报告"),
 ):
     """回测策略"""
-    from opentrade.services.backtest_service import BacktestService
     from datetime import datetime
-    
-    print(f"[bold]📊 开始回测[/bold]")
+
+    from opentrade.services.backtest_service import BacktestService
+
+    print("[bold]📊 开始回测[/bold]")
     print(f"   策略: {strategy}")
     print(f"   资金: ${capital:,.2f}")
     print(f"   标的: {symbols}")
     print(f"   时间: {start} ~ {end or '至今'}")
     print()
-    
+
     service = BacktestService()
-    
+
     symbol_list = [s.strip() for s in symbols.split(",")]
-    
+
     results = service.run_backtest(
         strategy_name=strategy,
         start_date=datetime.fromisoformat(start),
@@ -218,7 +219,7 @@ def backtest(
         symbol=symbol_list,
         initial_capital=capital,
     )
-    
+
     # 显示结果
     print(Panel(
         f"[green]回测完成！[/green]\n\n"
@@ -229,7 +230,7 @@ def backtest(
         f"夏普比率: {results['sharpe_ratio']:.2f}",
         title="回测结果"
     ))
-    
+
     if report:
         service.generate_report(results, output_file=f"backtest_{strategy}_{start}.html")
 
@@ -243,7 +244,7 @@ def strategy(
     if command is None:
         print(ctx.get_help())
         raise typer.Exit(1)
-    
+
     if command == "list":
         _strategy_list()
     elif command == "new":
@@ -260,10 +261,10 @@ def strategy(
 def _strategy_list():
     """列出策略"""
     from opentrade.services.strategy_service import StrategyService
-    
+
     service = StrategyService()
     strategies = service.list_strategies()
-    
+
     print("\n[bold]📋 已安装策略:[/bold]\n")
     for s in strategies:
         print(f"  • [cyan]{s.name}[/cyan] v{s.version} - {s.description}")
@@ -271,11 +272,10 @@ def _strategy_list():
 
 def _strategy_new(name: str):
     """创建新策略"""
-    from opentrade.cli.templates import STRATEGY_TEMPLATE
-    
+
     if not name:
         name = typer.prompt("策略名称")
-    
+
     # TODO: 从模板生成策略文件
     print(f"[green]创建策略: {name}[/green]")
 
@@ -300,7 +300,7 @@ def plugin(
     if command is None:
         print(ctx.get_help())
         raise typer.Exit(1)
-    
+
     if command == "list":
         _plugin_list()
     elif command == "install":
@@ -360,7 +360,7 @@ def config(
     if command is None:
         print(ctx.get_help())
         raise typer.Exit(1)
-    
+
     if command == "show":
         _config_show()
     elif command == "set":
@@ -376,12 +376,12 @@ def config(
 
 def _config_show():
     """显示配置"""
-    from opentrade.core.config import load_config, config_path
-    
+    from opentrade.core.config import load_config
+
     config = load_config()
-    
-    print(f"\n[bold]⚙️  OpenTrade 配置[/bold]\n")
-    print(f"配置文件: {config_path()}")
+
+    print("\n[bold]⚙️  OpenTrade 配置[/bold]\n")
+    print(f"配置文件: {get_config_path()}")
     print(f"交易所: {config.exchange.name}")
     print(f"API Key: {'✅ 已配置' if config.exchange.api_key else '❌ 未配置'}")
     print(f"API Secret: {'✅ 已配置' if config.exchange.api_secret else '❌ 未配置'}")
@@ -396,19 +396,19 @@ def _config_set():
 
 def _config_edit():
     """编辑配置"""
-    import subprocess
     import os
-    
+    import subprocess
+
     editor = os.environ.get("EDITOR", "nano")
-    config = config_path()
-    
+    config = get_config_path()
+
     subprocess.run([editor, str(config)])
 
 
 def _config_reset():
     """重置配置"""
     if typer.confirm("确认重置所有配置？"):
-        config = config_path()
+        config = get_config_path()
         if config.exists():
             config.unlink()
         print("[green]配置已重置[/green]")
@@ -421,9 +421,9 @@ def doctor(
 ):
     """系统诊断"""
     from opentrade.cli.doctor import run_diagnosis
-    
+
     issues = run_diagnosis(fix=fix)
-    
+
     if not issues:
         print("\n[green]✅ 系统健康！[/green]")
     else:
@@ -437,15 +437,15 @@ def update(
 ):
     """检查/更新 OpenTrade"""
     from opentrade.cli.updater import check_update, perform_update
-    
+
     if check:
         update_info = check_update()
-        
+
         if update_info["has_update"]:
             print(f"\n[yellow]新版本可用: {update_info['latest']}[/yellow]")
             print(f"当前版本: {update_info['current']}")
             print(f"更新大小: {update_info['size']}")
-            
+
             if latest:
                 perform_update()
         else:

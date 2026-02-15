@@ -4,20 +4,18 @@ OpenTrade 策略服务
 
 import json
 from pathlib import Path
-from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from opentrade.core.config import get_config
 from opentrade.core.database import db
 from opentrade.models.strategy import (
     Strategy,
+    StrategyEvolution,
     StrategyStatus,
     StrategyType,
     StrategyVersion,
-    StrategyEvolution,
 )
 
 
@@ -27,12 +25,12 @@ class StrategyService:
     负责策略的创建、加载、保存、
     版本管理和进化逻辑。
     """
-    
+
     def __init__(self):
         self.config = get_config()
         self._strategy_dir = Path.home() / ".opentrade" / "strategies"
         self._strategy_dir.mkdir(parents=True, exist_ok=True)
-    
+
     async def create_strategy(
         self,
         name: str,
@@ -50,20 +48,20 @@ class StrategyService:
             status=StrategyStatus.TESTING,
             parameters=json.dumps(parameters),
         )
-        
+
         async with db.session() as session:
             session.add(strategy)
-        
+
         return strategy
-    
-    async def load_strategy(self, strategy_id: str) -> Optional[Strategy]:
+
+    async def load_strategy(self, strategy_id: str) -> Strategy | None:
         """加载策略"""
         async with db.session() as session:
             result = await session.execute(
                 select(Strategy).where(Strategy.id == strategy_id)
             )
             return result.scalar_one_or_none()
-    
+
     async def list_strategies(
         self,
         status: StrategyStatus = None,
@@ -72,34 +70,34 @@ class StrategyService:
         """列出策略"""
         async with db.session() as session:
             query = select(Strategy)
-            
+
             if status:
                 query = query.where(Strategy.status == status)
             if strategy_type:
                 query = query.where(Strategy.strategy_type == strategy_type)
-            
+
             result = await session.execute(query)
             return list(result.scalars().all())
-    
+
     async def update_strategy(
         self,
         strategy_id: str,
         parameters: dict = None,
         performance: dict = None,
-    ) -> Optional[Strategy]:
+    ) -> Strategy | None:
         """更新策略"""
         async with db.session() as session:
             result = await session.execute(
                 select(Strategy).where(Strategy.id == strategy_id)
             )
             strategy = result.scalar_one_or_none()
-            
+
             if not strategy:
                 return None
-            
+
             if parameters:
                 strategy.parameters = json.dumps(parameters)
-            
+
             if performance:
                 if "win_rate" in performance:
                     strategy.win_rate = performance["win_rate"]
@@ -113,11 +111,11 @@ class StrategyService:
                     strategy.total_trades = performance["total_trades"]
                 if "total_pnl" in performance:
                     strategy.total_pnl = performance["total_pnl"]
-            
+
             strategy.updated_at = __import__("datetime").datetime.utcnow()
-            
+
             return strategy
-    
+
     async def evolve_strategy(
         self,
         strategy_id: str,
@@ -131,10 +129,10 @@ class StrategyService:
                 select(Strategy).where(Strategy.id == strategy_id)
             )
             original = result.scalar_one_or_none()
-            
+
             if not original:
                 raise ValueError("策略不存在")
-            
+
             # 保存版本历史
             version = StrategyVersion(
                 id=uuid4(),
@@ -152,16 +150,16 @@ class StrategyService:
                 created_at=__import__("datetime").datetime.utcnow(),
             )
             session.add(version)
-            
+
             # 创建新版本
             new_params = json.loads(original.parameters)
             new_params.update(changes)
-            
+
             # 更新版本号
             version_parts = original.version.split(".")
             version_parts[-1] = str(int(version_parts[-1]) + 1)
             new_version = ".".join(version_parts)
-            
+
             # 创建进化记录
             evolution = StrategyEvolution(
                 id=uuid4(),
@@ -176,14 +174,14 @@ class StrategyService:
                 created_at=__import__("datetime").datetime.utcnow(),
             )
             session.add(evolution)
-            
+
             # 更新原策略
             original.parameters = json.dumps(new_params)
             original.version = new_version
             original.parent_id = strategy_id
-            
+
             return original, evolution
-    
+
     async def archive_strategy(self, strategy_id: str):
         """归档策略"""
         async with db.session() as session:
@@ -191,10 +189,10 @@ class StrategyService:
                 select(Strategy).where(Strategy.id == strategy_id)
             )
             strategy = result.scalar_one_or_none()
-            
+
             if strategy:
                 strategy.status = StrategyStatus.ARCHIVED
-    
+
     async def export_strategy(self, strategy_id: str) -> dict:
         """导出策略"""
         async with db.session() as session:
@@ -202,10 +200,10 @@ class StrategyService:
                 select(Strategy).where(Strategy.id == strategy_id)
             )
             strategy = result.scalar_one_or_none()
-            
+
             if not strategy:
                 raise ValueError("策略不存在")
-            
+
             return {
                 "id": str(strategy.id),
                 "name": strategy.name,
@@ -222,7 +220,7 @@ class StrategyService:
                     "total_pnl": strategy.total_pnl,
                 },
             }
-    
+
     async def import_strategy(self, data: dict) -> Strategy:
         """导入策略"""
         return await self.create_strategy(
@@ -231,7 +229,7 @@ class StrategyService:
             parameters=data.get("parameters", {}),
             description=data.get("description", ""),
         )
-    
+
     # 预定义策略
     async def get_builtin_strategies(self) -> list[dict]:
         """获取内置策略"""

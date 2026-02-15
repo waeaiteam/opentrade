@@ -2,8 +2,8 @@
 OpenTrade Web 配置
 """
 
+
 from pydantic import BaseModel
-from typing import Optional
 
 
 class WebSettings(BaseModel):

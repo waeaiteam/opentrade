@@ -2,11 +2,9 @@
 OpenTrade 交易所插件
 """
 
-import asyncio
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
 
 import ccxt.async_support as ccxt
 
@@ -42,50 +40,50 @@ class OrderInfo:
 
 class ExchangePlugin(BasePlugin):
     """交易所插件基类"""
-    
+
     def __init__(self, name: str, config: dict = None):
         super().__init__(config)
         self.name = name
-        self._exchange: Optional[ccxt.Exchange] = None
-    
+        self._exchange: ccxt.Exchange | None = None
+
     @property
     @abstractmethod
     def exchange_id(self) -> str:
         """交易所 ID (CCXT)"""
         pass
-    
+
     async def initialize(self):
         """初始化连接"""
         if self._exchange:
             return
-        
+
         self._exchange = self._create_exchange()
         await self._exchange.load_markets()
-    
+
     @abstractmethod
     def _create_exchange(self) -> ccxt.Exchange:
         """创建 CCXT 交易所实例"""
         pass
-    
+
     async def fetch_balance(self) -> dict:
         """获取余额"""
         if not self._exchange:
             await self.initialize()
-        
+
         balance = await self._exchange.fetch_balance()
         return {
             "total": balance["total"],
             "free": balance["free"],
             "used": balance["used"],
         }
-    
+
     async def fetch_positions(self) -> list[PositionInfo]:
         """获取持仓"""
         if not self._exchange:
             await self.initialize()
-        
+
         positions = await self._exchange.fetch_positions()
-        
+
         result = []
         for p in positions:
             result.append(PositionInfo(
@@ -97,9 +95,9 @@ class ExchangePlugin(BasePlugin):
                 liquidation_price=p.get("liquidationPrice", 0),
                 pnl=p.get("unrealizedPnl", 0),
             ))
-        
+
         return result
-    
+
     async def create_order(
         self,
         symbol: str,
@@ -114,17 +112,17 @@ class ExchangePlugin(BasePlugin):
         """创建订单"""
         if not self._exchange:
             await self.initialize()
-        
+
         params = {}
         if leverage > 1:
             params["leverage"] = leverage
-        
+
         order_params = {}
         if stop_loss:
             order_params["stopLossPrice"] = stop_loss
         if take_profit:
             order_params["takeProfitPrice"] = take_profit
-        
+
         if type == "market":
             if stop_loss or take_profit:
                 order = await self._exchange.create_order(
@@ -138,7 +136,7 @@ class ExchangePlugin(BasePlugin):
             order = await self._exchange.create_order(
                 symbol, side, "limit", amount, price, params=params
             )
-        
+
         return OrderInfo(
             id=order["id"],
             symbol=order["symbol"],
@@ -150,18 +148,18 @@ class ExchangePlugin(BasePlugin):
             price=order.get("price", 0),
             created_at=datetime.fromtimestamp(order["timestamp"] / 1000),
         )
-    
+
     async def close_position(self, symbol: str, side: str) -> OrderInfo:
         """平仓"""
         if not self._exchange:
             await self.initialize()
-        
+
         # 市价平仓
         opposite = "sell" if side == "long" else "buy"
         order = await self._exchange.create_order(
             symbol, opposite, "market", None
         )
-        
+
         return OrderInfo(
             id=order["id"],
             symbol=symbol,
@@ -173,31 +171,31 @@ class ExchangePlugin(BasePlugin):
             price=order.get("price", 0),
             created_at=datetime.fromtimestamp(order["timestamp"] / 1000),
         )
-    
+
     async def set_leverage(self, symbol: str, leverage: float):
         """设置杠杆"""
         if not self._exchange:
             await self.initialize()
-        
+
         await self._exchange.set_leverage(symbol, leverage)
-    
+
     async def set_stop_loss(self, symbol: str, side: str, stop_loss_pct: float):
         """设置止损"""
         # TODO: 实现
         pass
-    
+
     async def set_take_profit(self, symbol: str, side: str, take_profit_pct: float):
         """设置止盈"""
         # TODO: 实现
         pass
-    
+
     async def cancel_all_orders(self, symbol: str):
         """取消所有订单"""
         if not self._exchange:
             await self.initialize()
-        
+
         await self._exchange.cancel_all_orders(symbol)
-    
+
     async def shutdown(self):
         """关闭连接"""
         if self._exchange:
@@ -227,7 +225,7 @@ def get_exchange(
     if name not in _exchange_plugins:
         # 尝试使用 CCXT 原生
         return CCXTExchangePlugin(name, api_key, api_secret, testnet)
-    
+
     plugin_class = _exchange_plugins[name]
     return plugin_class({
         "api_key": api_key,
@@ -238,7 +236,7 @@ def get_exchange(
 
 class CCXTExchangePlugin(ExchangePlugin):
     """CCXT 通用交易所插件"""
-    
+
     def __init__(
         self,
         name: str,
@@ -255,23 +253,23 @@ class CCXTExchangePlugin(ExchangePlugin):
         self._api_key = api_key
         self._api_secret = api_secret
         self._testnet = testnet
-    
+
     @property
     def exchange_id(self) -> str:
         return self._name
-    
+
     def _create_exchange(self) -> ccxt.Exchange:
         exchange_class = getattr(ccxt, self._name)
-        
+
         config = {
             "enableRateLimit": True,
         }
-        
+
         if self._api_key:
             config["apiKey"] = self._api_key
         if self._api_secret:
             config["secret"] = self._api_secret
         if self._testnet:
             config["options"] = {"defaultType": "future"}
-        
+
         return exchange_class(config)
