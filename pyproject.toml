@@ -1,6 +1,5 @@
 [project]
 name = "opentrade"
-version = "1.0.0a1"
 description = "OpenTrade - Open Source AI Trading System"
 readme = "README.md"
 license = {text = "MIT"}

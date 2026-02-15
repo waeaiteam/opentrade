@@ -10,35 +10,42 @@ services:
     ports:
       - "8000:8000"      # API 服务
       - "18790:18790"    # WebSocket 网关
-      - "3000:3000"      # Web 面板
     environment:
       - OPENTRADE_MODE=${OPENTRADE_MODE:-paper}
-      - OPENTRADE_DB_URL=postgresql+asyncpg://opentrade:password@postgres:5432/opentrade
+      - OPENTRADE_DB_URL=postgresql+asyncpg://opentrade:password@timescaledb:5432/opentrade
       - OPENTRADE_REDIS_URL=redis://redis:6379/0
+      - OPENTRADE_QDRANT_URL=http://qdrant:6333
     volumes:
       - ./config.yaml:/root/.opentrade/config.yaml:ro
       - ./data:/root/.opentrade/data
     depends_on:
-      - postgres
+      - timescaledb
       - redis
+      - qdrant
     networks:
       - opentrade-net
 
-  postgres:
-    image: postgres:15-alpine
-    container_name: opentrade-postgres
+  # TimescaleDB (时序数据库)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: opentrade-timescaledb
     restart: unless-stopped
     environment:
       - POSTGRES_USER=opentrade
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=opentrade
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - timescaledb-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     networks:
       - opentrade-net
+    command: >
+      postgres
+      -c shared_preload_libraries=timescaledb
+      -c max_connections=100
 
+  # Redis (缓存/会话)
   redis:
     image: redis:7-alpine
     container_name: opentrade-redis
@@ -51,6 +58,19 @@ services:
     networks:
       - opentrade-net
 
+  # Qdrant (向量数据库 - 策略经验存储)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: opentrade-qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
+    ports:
+      - "6333:6333"
+    networks:
+      - opentrade-net
+
+  # pgAdmin (数据库管理)
   pgadmin:
     image: dpage/pgadmin8:latest
     container_name: opentrade-pgadmin
@@ -63,13 +83,30 @@ services:
     volumes:
       - pgadmin-data:/var/lib/pgadmin
     depends_on:
-      - postgres
+      - timescaledb
+    networks:
+      - opentrade-net
+
+  # Frontend (可选 - Next.js Web 面板)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: opentrade-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://opentrade:8000
+    depends_on:
+      - opentrade
     networks:
       - opentrade-net
 
 volumes:
-  postgres-data:
+  timescaledb-data:
   redis-data:
+  qdrant-data:
   pgadmin-data:
 
 networks:

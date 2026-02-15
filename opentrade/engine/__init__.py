@@ -17,6 +17,9 @@ from opentrade.engine.executor import (
     PositionSide,
     Ticker,
     TradeExecutor,
+    Direction,
+    Signal,
+    BaseStrategy,
     create_simulated_executor,
     create_ccxt_executor,
 )
@@ -33,10 +36,15 @@ __all__ = [
     "OrderType",
     "OrderStatus",
     "PositionSide",
+    # 信号
+    "Direction",
+    "Signal",
     # Adapter
     "ExecutionAdapter",
     # 执行器
     "TradeExecutor",
+    # 策略
+    "BaseStrategy",
     # 工厂
     "create_simulated_executor",
     "create_ccxt_executor",

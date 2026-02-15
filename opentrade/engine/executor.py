@@ -447,3 +447,105 @@ def create_ccxt_executor(
         testnet=testnet,
     )
     return TradeExecutor(adapter)
+
+
+# ============ 策略基类 ============
+
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any
+
+
+class Direction(str, Enum):
+    """交易方向"""
+    LONG = "LONG"
+    SHORT = "SHORT"
+    CLOSE = "CLOSE"
+    HOLD = "HOLD"
+
+
+@dataclass
+class Signal:
+    """交易信号"""
+    direction: Direction = Direction.HOLD
+    confidence: float = 0.0
+    size: float = 0.0
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    reason: str = ""
+
+    @classmethod
+    def neutral(cls) -> "Signal":
+        return cls()
+
+    @classmethod
+    def long(cls, confidence: float = 0.5, size: float = 0.1, **kwargs) -> "Signal":
+        return cls(
+            direction=Direction.LONG,
+            confidence=confidence,
+            size=size,
+            **kwargs
+        )
+
+    @classmethod
+    def short(cls, confidence: float = 0.5, size: float = 0.1, **kwargs) -> "Signal":
+        return cls(
+            direction=Direction.SHORT,
+            confidence=confidence,
+            size=size,
+            **kwargs
+        )
+
+    @classmethod
+    def close(cls, confidence: float = 0.9, **kwargs) -> "Signal":
+        return cls(
+            direction=Direction.CLOSE,
+            confidence=confidence,
+            size=1.0,
+            **kwargs
+        )
+
+
+class BaseStrategy(ABC):
+    """策略基类"""
+
+    def __init__(self, name: str = "BaseStrategy"):
+        self.name = name
+
+    @property
+    @abstractmethod
+    def strategy_id(self) -> str:
+        """策略 ID"""
+        pass
+
+    @abstractmethod
+    async def analyze(self, market_data: dict) -> Signal:
+        """
+        分析市场数据，生成信号
+
+        Args:
+            market_data: 市场数据字典，包含:
+                - price: 当前价格
+                - prices: 历史价格列表
+                - highs: 最高价列表
+                - lows: 最低价列表
+                - closes: 收盘价列表
+                - volumes: 成交量列表
+
+        Returns:
+            Signal: 交易信号
+        """
+        pass
+
+    def get_parameters(self) -> dict:
+        """获取策略参数"""
+        return {}
+
+    async def on_order_update(self, order: dict):
+        """订单更新回调"""
+        pass
+
+    async def on_position_update(self, position: dict):
+        """持仓更新回调"""
+        pass
