@@ -41,11 +41,9 @@ def setup_logging(verbose: bool = False):
             structlog.processors.format_exc_info,
             structlog.dev.ConsoleRenderer(
                 colors=sys.stdout.isatty(),
-                show_level=True,
-                show_time=True,
             ),
         ],
-        wrapper_class=structlog.stdlib.AsyncLoggerManager,
+        wrapper_class=structlog.stdlib.BoundLogger,
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
@@ -60,7 +58,7 @@ def setup_logging(verbose: bool = False):
 def handle_exceptions(func: Callable) -> Callable:
     """异常处理装饰器"""
     @wraps(func)
-    def wrapper(*args: **kwargs) -> Any:
+    def wrapper(*args, **kwargs) -> Any:
         try:
             return func(*args, **kwargs)
         except KeyboardInterrupt:

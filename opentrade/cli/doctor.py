@@ -70,9 +70,9 @@ class Doctor:
             "message": f"{version.major}.{version.minor}.{version.micro}",
         }
 
-        if version < (3, 11):
+        if version < (3, 10):
             result["status"] = "❌"
-            result["message"] = f"需要 Python 3.11+，当前 {version.major}.{version.minor}"
+            result["message"] = f"需要 Python 3.10+，当前 {version.major}.{version.minor}"
 
         return result
 

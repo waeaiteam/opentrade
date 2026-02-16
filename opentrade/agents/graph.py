@@ -4,11 +4,19 @@ OpenTrade LangGraph StateGraph 定义
 定义完整的交易决策工作流图。
 """
 
-from typing import Any, TypedDict
-from langgraph.graph import StateGraph, END
+from typing import Any, TypedDict, TYPE_CHECKING
 
-from opentrade.agents.base import AgentType, MarketDirection
-from opentrade.agents.coordinator import AgentCoordinator, AgentInput, FinalDecision
+from opentrade.agents.coordinator import AgentType, MarketDirection, AgentCoordinator, AgentInput, FinalDecision
+
+# 条件导入 langgraph (仅在需要时)
+if TYPE_CHECKING:
+    from langgraph.graph import StateGraph, END
+else:
+    try:
+        from langgraph.graph import StateGraph, END
+    except ImportError:
+        StateGraph = None
+        END = None
 
 
 # ============ Graph State ============
