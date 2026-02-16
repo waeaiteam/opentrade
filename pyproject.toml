@@ -210,23 +210,20 @@ Discord = "https://discord.gg/opentrade"
 Docs = "https://docs.opentrade.ai"
 
 [project.entry-points]
-opentrade.plugins = [
-    "trend_following = opentrade.strategies.trend_following:TrendFollowingStrategy",
-    "mean_reversion = opentrade.strategies.mean_reversion:MeanReversionStrategy",
-    "grid_trading = opentrade.strategies.grid_trading:GridTradingStrategy",
-    "scalping = opentrade.strategies.scalping:ScalpingStrategy",
-]
+"opentrade.plugins" = 
+    trend_following = "opentrade.strategies.trend_following:TrendFollowingStrategy"
+    mean_reversion = "opentrade.strategies.mean_reversion:MeanReversionStrategy"
+    grid_trading = "opentrade.strategies.grid_trading:GridTradingStrategy"
+    scalping = "opentrade.strategies.scalping:ScalpingStrategy"
 
-opentrade.data_sources = [
-    "ccxt = opentrade.data_sources.ccxt:CCXTDataSource",
-    "glassnode = opentrade.data_sources.glassnode:GlassnodeDataSource",
-    "fred = opentrade.data_sources.fred:FREDDataSource",
-]
+"opentrade.data_sources" = 
+    ccxt = "opentrade.data_sources.ccxt:CCXTDataSource"
+    glassnode = "opentrade.data_sources.glassnode:GlassnodeDataSource"
+    fred = "opentrade.data_sources.fred:FREDDataSource"
 
-opentrade.notifiers = [
-    "telegram = opentrade.notifiers.telegram:TelegramNotifier",
-    "log = opentrade.notifiers.log:LogNotifier",
-]
+"opentrade.notifiers" = 
+    telegram = "opentrade.notifiers.telegram:TelegramNotifier"
+    log = "opentrade.notifiers.log:LogNotifier"
 
 [build-system]
 requires = ["setuptools>=69.0.0", "wheel"]
