@@ -19,7 +19,7 @@ from opentrade.engine import (
     create_ccxt_executor,
 )
 
-from opentrade.agents.coordinator import AgentCoordinator, TradingDecision
+from opentrade.agents.coordinator import AgentCoordinator, FinalDecision
 
 from opentrade.evolution import (
     GeneticAlgorithm,
@@ -66,7 +66,7 @@ __all__ = [
     "create_ccxt_executor",
     # Agent
     "AgentCoordinator",
-    "TradingDecision",
+    "FinalDecision",
     # 进化
     "GeneticAlgorithm",
     "StrategyGenome",

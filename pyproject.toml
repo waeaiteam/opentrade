@@ -202,10 +202,10 @@ opentrade-doctor = "opentrade.cli.doctor:main"
 opentrade-backtest = "opentrade.cli.backtest:run"
 
 [project.urls]
-Homepage = "https://opentrade.ai"
-Repository = "https://github.com/opentrade-ai/opentrade"
-Issues = "https://github.com/opentrade-ai/opentrade/issues"
-Changelog = "https://github.com/opentrade-ai/opentrade/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/1347415016/opentrade"
+Repository = "https://github.com/1347415016/opentrade"
+Issues = "https://github.com/1347415016/opentrade/issues"
+Changelog = "https://github.com/1347415016/opentrade/blob/main/CHANGELOG.md"
 Discord = "https://discord.gg/opentrade"
 Docs = "https://docs.opentrade.ai"
 

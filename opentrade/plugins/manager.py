@@ -27,6 +27,7 @@ OpenTrade Plugin System - 插件系统
 import asyncio
 import json
 import sys
+import yaml
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -270,7 +271,7 @@ class PluginManager:
                 if metadata_file.exists():
                     try:
                         with open(metadata_file) as f:
-                            data = json.load(f)
+                            data = yaml.safe_load(f)
                         metadata = PluginMetadata.from_dict(data)
                         discovered.append(metadata)
                     except Exception as e:
@@ -428,13 +429,11 @@ class PluginManager:
 
     def load_config(self, path: str = "./data/plugin_config.json"):
         """加载配置"""
-        import json
-
         if not Path(path).exists():
             return
 
         with open(path) as f:
-            config = json.load(f)
+            config = yaml.safe_load(f)
 
         # 恢复启用插件
         for plugin_id in config.get("enabled_plugins", []):

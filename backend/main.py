@@ -9,7 +9,7 @@ README 要求: uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from opentrade.web.api import router as api_router
+from opentrade.web.api import app as api_app
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -24,14 +24,11 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 OpenTrade Backend stopped")
 
 
-app = FastAPI(
-    title="OpenTrade API",
-    description="Enterprise AI Trading System API",
-    version="1.0.0",
-    lifespan=lifespan,
-)
+# 使用 api.py 中定义的 app
+app = api_app
 
-# CORS
+
+# CORS (确保在 app 上添加)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,9 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# API 路由
-app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/")
