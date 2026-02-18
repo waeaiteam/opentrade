@@ -161,3 +161,137 @@ class TestTradeExecutor:
         
         assert "errors" in result
         assert not result["passed"]  # 应该被拦截
+
+
+class TestEvolutionEngine:
+    """策略进化引擎测试"""
+    
+    def test_risk_parameters_extreme_fear(self):
+        """极端恐惧模式风险参数"""
+        from opentrade.agents.evolution import EvolutionEngine, MarketState
+        import asyncio
+        
+        engine = EvolutionEngine()
+        engine.market_state = MarketState(fear_greed_index=10)
+        
+        params = engine.get_risk_parameters()
+        
+        assert params["max_leverage"] == 1.0
+        assert params["stop_loss"] == 0.02
+        assert params["stablecoin_ratio"] == 0.80
+    
+    def test_risk_parameters_greedy(self):
+        """贪婪模式风险参数"""
+        from opentrade.agents.evolution import EvolutionEngine, MarketState
+        
+        engine = EvolutionEngine()
+        engine.market_state = MarketState(fear_greed_index=85)
+        
+        params = engine.get_risk_parameters()
+        
+        assert params["max_leverage"] == 2.0
+        assert params["risk_mode"] == "greedy"
+
+
+class TestVectorStore:
+    """向量存储测试"""
+    
+    def test_memory_vector_store(self):
+        """内存向量存储测试"""
+        from opentrade.core.vector_store import MemoryVectorStore, VectorRecord
+        from datetime import datetime
+        
+        store = MemoryVectorStore()
+        
+        record = VectorRecord(
+            id="test-1",
+            vector=[0.1, 0.2, 0.3],
+            payload={"type": "test"},
+            created_at=datetime.utcnow(),
+        )
+        
+        # 添加
+        result = store.add(record)
+        assert result == "test-1"
+        
+        # 搜索
+        results = store.search([0.1, 0.2, 0.3], limit=5)
+        assert len(results) >= 1
+        assert results[0]["id"] == "test-1"
+        
+        # 删除
+        assert store.delete("test-1") is True
+        
+        # 关闭
+        store.close()
+    
+    def test_strategy_experience_store(self):
+        """策略经验存储测试"""
+        from opentrade.core.vector_store import StrategyExperienceStore
+        
+        store = StrategyExperienceStore()
+        
+        # 存储经验
+        record_id = store.store_experience(
+            strategy_name="trend_following",
+            market_condition={"fear_index": 30, "volatility": 0.02},
+            action="buy",
+            result="success",
+            pnl=0.05,
+            vector=[0.3, 0.2, 0.1],
+        )
+        
+        assert record_id is not None
+        
+        # 搜索
+        results = store.search_similar_experiences(
+            market_condition={"fear_index": 35, "volatility": 0.02},
+            limit=5,
+        )
+        
+        assert isinstance(results, list)
+        
+        store.close()
+
+
+class TestConfig:
+    """配置测试"""
+    
+    def test_exchange_config(self):
+        """交易所配置"""
+        from opentrade.core.config import ExchangeConfig
+        
+        config = ExchangeConfig(
+            name="binance",
+            api_key="test-key",
+            api_secret="test-secret",
+            testnet=True,
+        )
+        
+        assert config.name == "binance"
+        assert config.testnet is True
+    
+    def test_ai_config(self):
+        """AI配置"""
+        from opentrade.core.config import AIConfig
+        
+        config = AIConfig(
+            model="deepseek/deepseek-chat",
+            temperature=0.7,
+            max_tokens=4096,
+        )
+        
+        assert config.model == "deepseek/deepseek-chat"
+        assert config.temperature == 0.7
+
+
+class TestCircuitBreaker:
+    """熔断机制测试"""
+    
+    def test_circuit_states(self):
+        """熔断状态测试"""
+        from opentrade.core.circuit_breaker import CircuitState
+        
+        assert CircuitState.CLOSED.value == "closed"
+        assert CircuitState.OPEN.value == "open"
+        assert CircuitState.HALF_OPEN.value == "half_open"
