@@ -48,8 +48,12 @@ class BacktestEngine:
         rprint(f"  Initial: ${self.initial_balance:,.2f}")
         rprint("")
 
-        # 模拟价格数据生成
-        prices = self._generate_simulated_prices(start_date, end_date)
+        # 获取真实历史数据
+        prices = await self._fetch_historical_prices(symbol, start_date, end_date)
+        
+        if not prices:
+            rprint("[yellow]⚠️ 无法获取历史数据，使用模拟数据[/yellow]")
+            prices = self._generate_simulated_prices(start_date, end_date)
 
         # 执行策略信号
         for i, price in enumerate(prices):
@@ -68,6 +72,37 @@ class BacktestEngine:
             })
 
         return self._generate_report(symbol, prices[-1] if prices else 0)
+
+    async def _fetch_historical_prices(
+        self, symbol: str, start: datetime, end: datetime
+    ) -> list[float]:
+        """从CCXT获取真实历史数据"""
+        try:
+            import ccxt.async_support as ccxt
+            
+            exchange = ccxt.binance({
+                'enableRateLimit': True,
+            })
+            
+            # 格式化symbol
+            symbol_fmt = symbol.replace("/USDT", "").upper() + "/USDT"
+            
+            ohlcv = await exchange.fetch_ohlcv(
+                symbol_fmt,
+                timeframe='1h',
+                since=int(start.timestamp() * 1000),
+                limit=min(1000, int((end - start).total_seconds() / 3600))
+            )
+            
+            await exchange.close()
+            
+            if ohlcv:
+                return [c[4] for c in ohlcv]
+            
+        except Exception as e:
+            rprint(f"[yellow]⚠️ 获取历史数据失败: {e}[/yellow]")
+        
+        return []
 
     def _generate_simulated_prices(
         self, start: datetime, end: datetime
