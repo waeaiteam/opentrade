@@ -66,11 +66,11 @@ AI_PROVIDERS = {
         "pricing": "$3-15 / 1M tokens",
     },
     "doubao": {
-        "name": "字节跳动 (Doubao)",
-        "models": ["doubao-pro-32k", "doubao-pro-128k"],
-        "default_model": "doubao-pro-32k",
-        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
-        "features": "国内访问快，性价比高",
+        "name": "字节跳动 (Doubao/Volcengine)",
+        "models": ["doubao-pro-32k", "doubao-pro-128k", "ark-code-latest"],
+        "default_model": "ark-code-latest",
+        "base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "features": "国内访问快，性价比高，豆包 AI 助手",
         "pricing": "¥ 0.8-1.5 / 1M tokens",
     },
     "yi": {
