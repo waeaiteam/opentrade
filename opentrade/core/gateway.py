@@ -1,576 +1,403 @@
 """
-OpenTrade Order Gateway - 强制风控网关
-
-所有订单必须通过此网关提交，确保风控 100% 强制执行。
-
-订单流程:
-    任意来源 (Agent/API/Bot/Manual)
-           ↓
-    OrderGateway.submit(order)  ← 唯一入口
-           ↓
-    RiskEngine.validate()        ← 100% 强制
-           ↓
-    ExchangeAdapter.execute()    ← 禁止直连
-           ↓
-    OrderGateway.execute()
-           ↓
-    订单回执 + 审计日志
+风控引擎 - 不可绕过的强制校验层
+所有订单必须经过此模块校验，确保风控红线不可突破
 """
-
-import uuid
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional, Dict, List, Any
+import logging
 
-from pydantic import BaseModel, Field
-
-
-class OrderSide(str, Enum):
-    """订单方向"""
-    BUY = "buy"
-    SELL = "sell"
+logger = logging.getLogger(__name__)
 
 
-class OrderType(str, Enum):
-    """订单类型"""
-    MARKET = "market"
-    LIMIT = "limit"
-    STOP = "stop"
-    STOP_LIMIT = "stop_limit"
+class RiskLevel(Enum):
+    """风险等级"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
-class OrderStatus(str, Enum):
-    """订单状态"""
-    PENDING = "pending"
-    SUBMITTED = "submitted"
-    FILLED = "filled"
-    PARTIAL = "partial"
-    CANCELLED = "cancelled"
-    REJECTED = "rejected"
-    FAILED = "failed"
-
-
-class RejectReason(str, Enum):
-    """拒绝原因"""
-    RISK_CHECK_FAILED = "risk_check_failed"
-    INSUFFICIENT_MARGIN = "insufficient_margin"
-    POSITION_LIMIT_EXCEEDED = "position_limit_exceeded"
-    LEVERAGE_EXCEEDED = "leverage_exceeded"
-    PRICE_DEVIATION = "price_deviation"
-    MARKET_SUSPENDED = "market_suspended"
-    API_ERROR = "api_error"
-    TIMEOUT = "timeout"
-
-
-# ============ 数据模型 ============
-
-class OrderRequest(BaseModel):
-    """订单请求"""
-    symbol: str = Field(..., description="交易对, e.g. BTC/USDT")
-    side: OrderSide = Field(..., description="买入/卖出")
-    order_type: OrderType = Field(..., description="订单类型")
-    size: float = Field(..., gt=0, description="数量")
-    price: Optional[float] = Field(None, description="限价价格")
-    leverage: float = Field(default=1.0, ge=1, le=100, description="杠杆倍数")
-    stop_loss: Optional[float] = Field(None, description="止损价格")
-    take_profit: Optional[float] = Field(None, description="止盈价格")
-    reduce_only: bool = Field(default=False, description="只减仓")
-    post_only: bool = Field(default=False, description="只做maker")
-    source: str = Field(default="unknown", description="订单来源: agent/api/cli/bot")
-    strategy_id: Optional[str] = Field(None, description="策略ID")
-    trace_id: Optional[str] = Field(None, description="追溯ID")
-
-
-class Order(BaseModel):
-    """完整订单信息"""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    symbol: str
-    side: OrderSide
-    order_type: OrderType
-    size: float
-    price: Optional[float] = None
-    leverage: float = 1.0
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
-    status: OrderStatus = OrderStatus.PENDING
-    source: str = "unknown"
-    strategy_id: Optional[str] = None
-    trace_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    filled_size: float = 0.0
-    average_price: Optional[float] = None
-    commission: float = 0.0
-    reject_reason: Optional[RejectReason] = None
-    reject_message: Optional[str] = None
-    raw_response: Optional[dict] = None
-
-
-class RiskCheckResult(BaseModel):
+@dataclass
+class RiskCheckResult:
     """风控检查结果"""
-    allowed: bool = False
-    reason: Optional[RejectReason] = None
-    message: str = ""
-    risk_score: float = 0.0
-    warnings: list[str] = []
-    adjustments: dict[str, Any] = {}
+    allowed: bool
+    risk_level: RiskLevel
+    reason: str
+    modifications: Dict[str, Any] = field(default_factory=dict)
+    blocked_order: Optional[dict] = None
 
 
-class AccountState(BaseModel):
-    """账户状态"""
-    total_equity: float = 0.0
-    available_balance: float = 0.0
-    positions: dict[str, dict] = {}  # symbol -> position info
-    open_orders: int = 0
-    daily_pnl: float = 0.0
-    daily_loss_pct: float = 0.0
+@dataclass
+class RiskConfig:
+    """风险配置"""
+    # 仓位限制
+    max_single_position: float = 0.1          # 单笔最大仓位 10%
+    max_total_exposure: float = 0.25            # 总敞口 25%
+    max_leverage: float = 2.0                    # 最大杠杆
+    
+    # 止损限制
+    stop_loss_min: float = 0.02                  # 最小止损 2%
+    stop_loss_max: float = 0.15                  # 最大止损 15%
+    
+    # 盈亏限制
+    max_single_loss: float = 0.05               # 单笔最大亏损 5%
+    max_daily_loss: float = 0.1                  # 单日最大亏损 10%
+    max_profit_lock: float = 0.5                 # 止盈锁定 50%
+    
+    # 风险评分阈值
+    risk_score_threshold: float = 70.0           # 风险评分阈值
+    
+    # 禁止交易时段
+    blackout_hours: List[int] = field(default_factory=list)  # 禁止交易时段
 
-
-class PositionInfo(BaseModel):
-    """持仓信息"""
-    symbol: str
-    side: str  # long/short
-    size: float
-    entry_price: float
-    mark_price: float
-    pnl: float
-    pnl_pct: float
-    liq_price: Optional[float] = None
-    margin: float
-    leverage: float
-
-
-# ============ 风控引擎 ============
 
 class RiskEngine:
     """
-    风险控制引擎
-
-    所有订单强制经过此引擎检查，包括:
-    - 保证金检查
-    - 仓位限制检查
-    - 杠杆限制检查
-    - 止损止盈验证
-    - 价格偏离检查
-    - 账户级风险检查
-    - 策略级风险检查
+    风控引擎 - 所有订单的强制校验层
+    
+    设计原则:
+    1. 不可绕过 - 所有订单必须经过校验
+    2. 即时生效 - 配置变更立即生效
+    3. 可追溯 - 所有检查有日志
     """
-
-    def __init__(self, config):
-        self.config = config
-        self.max_leverage = config.risk.max_leverage
-        self.max_position_pct = config.risk.max_position_pct
-        self.max_daily_loss_pct = config.risk.max_daily_loss_pct
-        self.stop_loss_pct = config.risk.stop_loss_pct
-        self.take_profit_pct = config.risk.take_profit_pct
-        self.max_open_positions = config.risk.max_open_positions
-
-    async def validate(
-        self,
-        order: OrderRequest,
-        account: AccountState,
-        strategy_state: Optional[dict] = None,
-    ) -> RiskCheckResult:
+    
+    def __init__(self, config: Optional[RiskConfig] = None):
+        self.config = config or RiskConfig()
+        self._daily_stats = {
+            "total_trades": 0,
+            "total_loss": 0.0,
+            "blocked_orders": 0,
+            "last_reset": datetime.now()
+        }
+        self._circuit_breakers = {}  # 熔断状态
+    
+    async def check_order(self, order: dict, account_info: dict) -> RiskCheckResult:
         """
-        执行风控检查
-
+        检查订单 - 强制入口
+        
         Args:
-            order: 订单请求
-            account: 账户状态
-            strategy_state: 策略状态 (可选)
-
+            order: 订单信息
+            account_info: 账户信息
+        
         Returns:
             RiskCheckResult: 检查结果
         """
-        result = RiskCheckResult(allowed=True)
-        order_value = order.size * (order.price or 0)
-
-        # 1. 账户基础检查
-        if account.available_balance <= 0:
-            result.allowed = False
-            result.reason = RejectReason.INSUFFICIENT_MARGIN
-            result.message = "账户余额不足"
-            return result
-
-        # 2. 杠杆限制
-        if order.leverage > self.max_leverage:
-            result.allowed = False
-            result.reason = RejectReason.LEVERAGE_EXCEEDED
-            result.message = f"杠杆 {order.leverage}x 超过限制 {self.max_leverage}x"
-            result.adjustments["leverage"] = self.max_leverage
-            return result
-
-        # 3. 仓位限制 (单笔)
-        max_position_value = account.total_equity * self.max_position_pct
-        if order_value > max_position_value:
-            result.warnings.append(
-                f"订单金额 {order_value:.2f} 超过单笔限制 {max_position_value:.2f}"
+        # 1. 检查黑名单
+        check = self._check_blacklist(order)
+        if not check.allowed:
+            return check
+        
+        # 2. 检查仓位限制
+        check = self._check_position_limits(order, account_info)
+        if not check.allowed:
+            return check
+        
+        # 3. 检查杠杆限制
+        check = self._check_leverage(order, account_info)
+        if not check.allowed:
+            return check
+        
+        # 4. 检查止损设置
+        check = self._check_stop_loss(order)
+        if not check.allowed:
+            return check
+        
+        # 5. 检查盈亏限制
+        check = self._check_profit_loss_limits(order, account_info)
+        if not check.allowed:
+            return check
+        
+        # 6. 检查交易时段
+        check = self._check_trading_hours()
+        if not check.allowed:
+            return check
+        
+        # 7. 检查熔断状态
+        check = self._check_circuit_breaker(order)
+        if not check.allowed:
+            return check
+        
+        # 8. 计算最终风险评分
+        risk_score = self._calculate_risk_score(order, account_info)
+        if risk_score > self.config.risk_score_threshold:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.HIGH,
+                reason=f"风险评分({risk_score})超过阈值({self.config.risk_score_threshold})",
+                blocked_order=order
             )
-            result.adjustments["size"] = max_position_value / (order.price or 1)
-            result.adjustments["size_adjusted"] = True
-
-        # 4. 开仓数量限制
-        current_positions = len(account.positions)
-        if current_positions >= self.max_open_positions:
-            result.warnings.append(f"已开仓位数 {current_positions} 达到上限")
-
-        # 5. 日亏损限制
-        if account.daily_loss_pct >= self.max_daily_loss_pct:
-            result.allowed = False
-            result.reason = RejectReason.RISK_CHECK_FAILED
-            result.message = (
-                f"日亏损 {account.daily_loss_pct*100:.1f}% "
-                f"达到限制 {self.max_daily_loss_pct*100:.1f}%，禁止开仓"
-            )
-            return result
-
-        # 6. 止损止盈检查
-        if not order.stop_loss and order.size > account.total_equity * 0.05:
-            result.warnings.append(
-                "大额订单未设置止损，建议设置 stop_loss 参数"
-            )
-
-        # 7. 策略级风控
-        if strategy_state:
-            # 检查策略状态
-            if strategy_state.get("frozen"):
-                result.allowed = False
-                result.reason = RejectReason.RISK_CHECK_FAILED
-                result.message = "策略已被冻结"
-                return result
-
-            # 检查策略最大回撤
-            if strategy_state.get("current_drawdown", 0) > strategy_state.get("max_drawdown", 0.2):
-                result.warnings.append("策略当前回撤接近限制")
-
-        # 8. 价格合理性检查
-        if order.price:
-            symbol_positions = account.positions.get(order.symbol, {})
-            if symbol_positions:
-                entry_price = symbol_positions.get("entry_price", 0)
-                if entry_price > 0:
-                    price_change = abs(order.price - entry_price) / entry_price
-                    if price_change > 0.1:  # 10% 价格偏离
-                        result.warnings.append(
-                            f"限价偏离当前价格 {price_change*100:.1f}%"
-                        )
-
-        # 计算风险分数
-        result.risk_score = self._calculate_risk_score(order, account)
-
-        return result
-
-    def _calculate_risk_score(
-        self,
-        order: OrderRequest,
-        account: AccountState,
-    ) -> float:
-        """计算风险分数 (0-1)"""
-        score = 0.0
-
-        # 杠杆风险
-        score += (order.leverage / self.max_leverage) * 0.3
-
-        # 仓位风险
-        order_value = order.size * (order.price or 0)
-        position_pct = order_value / account.total_equity if account.total_equity else 1
-        score += min(position_pct / self.max_position_pct, 1.0) * 0.3
-
-        # 市场风险 (时间因素)
-        from datetime import datetime
-        hour = datetime.now().hour
-        if hour < 3 or hour > 23:  # 深夜风险高
-            score += 0.2
-
-        return min(score, 1.0)
-
-
-# ============ 订单网关 ============
-
-class OrderGateway:
-    """
-    订单网关 - 所有订单的唯一入口
-
-    设计原则:
-    1. 单一入口点: 所有订单必须通过 submit() 提交
-    2. 强制风控: RiskEngine.validate() 必须在执行前完成
-    3. 完整审计: 每次操作都有详细日志
-    4. 错误处理: 优雅降级，错误信息清晰
-    """
-
-    def __init__(self, exchange_adapter, config=None):
-        self.exchange = exchange_adapter
-        self.config = config
-        self.risk_engine = RiskEngine(config) if config else None
-        self._orders: dict[str, Order] = {}
-
-    async def submit(self, order: OrderRequest) -> Order:
-        """
-        提交订单 - 唯一入口
-
-        Args:
-            order: 订单请求
-
-        Returns:
-            Order: 完整订单信息
-
-        Raises:
-            RiskRejected: 订单被风控拒绝
-        """
-        order_id = str(uuid.uuid4())[:8]
-        trace_id = order.trace_id or f"ord_{order_id}"
-
-        print(f"[OrderGateway] 📝 提交订单 {order_id} | {order.symbol} {order.side.value} {order.size}")
-
-        # 1. 创建订单对象
-        order_obj = Order(
-            id=order_id,
-            symbol=order.symbol,
-            side=order.side,
-            order_type=order.order_type,
-            size=order.size,
-            price=order.price,
-            leverage=order.leverage,
-            stop_loss=order.stop_loss,
-            take_profit=order.take_profit,
-            source=order.source,
-            strategy_id=order.strategy_id,
-            trace_id=trace_id,
+        
+        logger.info(f"✅ 订单通过风控: {order.get('symbol', 'unknown')}")
+        return RiskCheckResult(
+            allowed=True,
+            risk_level=RiskLevel.LOW,
+            reason="订单通过所有风控检查"
         )
-
-        # 2. 获取账户状态
-        account = await self._get_account_state()
-
-        # 3. 风控检查 (强制)
-        if self.risk_engine:
-            risk_result = await self.risk_engine.validate(order, account)
-
-            if not risk_result.allowed:
-                order_obj.status = OrderStatus.REJECTED
-                order_obj.reject_reason = risk_result.reason
-                order_obj.reject_message = risk_result.message
-                order_obj.updated_at = datetime.utcnow()
-
-                self._orders[order_id] = order_obj
-                self._audit_log(order_obj, "rejected", risk_result.__dict__)
-
-                print(f"[OrderGateway] ❌ 订单被风控拒绝: {risk_result.message}")
-                raise RiskRejected(order_id, risk_result)
-
-            # 记录调整
-            if risk_result.adjustments:
-                if "size" in risk_result.adjustments:
-                    order_obj.size = risk_result.adjustments["size"]
-                    print(f"[OrderGateway] ⚠️  订单大小调整: {order.size} → {order_obj.size}")
-
-            # 记录警告
-            for warning in risk_result.warnings:
-                print(f"[OrderGateway] ⚠️  风控警告: {warning}")
-
-        # 4. 执行订单
-        try:
-            order_obj = await self._execute_order(order_obj)
-            self._orders[order_id] = order_obj
-            self._audit_log(order_obj, "submitted", {"status": order_obj.status.value})
-            return order_obj
-
-        except Exception as e:
-            order_obj.status = OrderStatus.FAILED
-            order_obj.reject_reason = RejectReason.API_ERROR
-            order_obj.reject_message = str(e)
-            order_obj.updated_at = datetime.utcnow()
-
-            self._orders[order_id] = order_obj
-            self._audit_log(order_obj, "failed", {"error": str(e)})
-
-            print(f"[OrderGateway] 💥 订单执行失败: {e}")
-            raise OrderExecutionError(order_id, str(e)) from e
-
-    async def _execute_order(self, order: Order) -> Order:
-        """执行订单 (内部调用)"""
-        order.status = OrderStatus.SUBMITTED
-        order.updated_at = datetime.utcnow()
-
-        # 构建交易所参数
-        exchange_params = {
-            "symbol": order.symbol,
-            "side": order.side.value,
-            "type": order.order_type.value,
-            "amount": order.size,
-            "leverage": order.leverage,
-        }
-
-        if order.price:
-            exchange_params["price"] = order.price
-
-        if order.stop_loss:
-            exchange_params["stopLoss"] = order.stop_loss
-
-        if order.take_profit:
-            exchange_params["takeProfit"] = order.take_profit
-
-        if order.reduce_only:
-            exchange_params["reduceOnly"] = True
-
-        # 调用交易所
-        if self.exchange:
-            raw_response = await self.exchange.create_order(**exchange_params)
-            order.raw_response = raw_response
-
-            # 解析成交
-            if raw_response.get("status") == "filled":
-                order.status = OrderStatus.FILLED
-                order.filled_size = raw_response.get("filled", order.size)
-                order.average_price = raw_response.get("average", order.price)
-            elif raw_response.get("status") == "closed":
-                order.status = OrderStatus.FILLED
-
-        order.updated_at = datetime.utcnow()
-        return order
-
-    async def _get_account_state(self) -> AccountState:
-        """获取账户状态"""
-        if not self.exchange:
-            return AccountState()
-
-        try:
-            balance = await self.exchange.fetch_balance()
-            total_equity = sum(float(v) for v in balance.get("total", {}).values())
-
-            return AccountState(
-                total_equity=total_equity,
-                available_balance=balance.get("free", {}).get("USDT", 0),
-                positions={},
-                open_orders=0,
+    
+    def _check_blacklist(self, order: dict) -> RiskCheckResult:
+        """检查黑名单"""
+        symbol = order.get("symbol", "").upper()
+        # 禁止交易的币种
+        blacklist = ["USDT", "DAI", "TUSD"]  # 稳定币禁止杠杆
+        
+        if symbol in blacklist:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.CRITICAL,
+                reason=f"禁止交易 {symbol}",
+                blocked_order=order
             )
-        except Exception:
-            return AccountState()
-
-    def _audit_log(
-        self,
-        order: Order,
-        action: str,
-        details: dict,
-    ):
-        """审计日志"""
-        from datetime import datetime
-
-        log_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "order_id": order.id,
-            "trace_id": order.trace_id,
-            "symbol": order.symbol,
-            "side": order.side.value,
-            "action": action,
-            "details": details,
+        return RiskCheckResult(True, RiskLevel.LOW, "不在黑名单")
+    
+    def _check_position_limits(self, order: dict, account_info: dict) -> RiskCheckResult:
+        """检查仓位限制"""
+        size = order.get("size", 0)
+        position_value = order.get("position_value", size)
+        total_exposure = account_info.get("total_exposure", 0)
+        
+        # 单笔仓位限制
+        if position_value > account_info.get("total_balance", 0) * self.config.max_single_position:
+            new_size = account_info.get("total_balance", 0) * self.config.max_single_position
+            return RiskCheckResult(
+                allowed=True,
+                risk_level=RiskLevel.MEDIUM,
+                reason=f"单笔仓位超限，已调整为 {new_size}",
+                modifications={"size": new_size}
+            )
+        
+        # 总敞口限制
+        if total_exposure + position_value > account_info.get("total_balance", 0) * self.config.max_total_exposure:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.HIGH,
+                reason=f"总敞口超限 (当前: {total_exposure}, 限制: {self.config.max_total_exposure})",
+                blocked_order=order
+            )
+        
+        return RiskCheckResult(True, RiskLevel.LOW, "仓位检查通过")
+    
+    def _check_leverage(self, order: dict, account_info: dict) -> RiskCheckResult:
+        """检查杠杆限制"""
+        leverage = order.get("leverage", 1.0)
+        
+        if leverage > self.config.max_leverage:
+            return RiskCheckResult(
+                allowed=True,
+                risk_level=RiskLevel.MEDIUM,
+                reason=f"杠杆({leverage}x)超过限制({self.config.max_leVERAGE}x)，已调整为最大值",
+                modifications={"leverage": self.config.max_leverage}
+            )
+        
+        if leverage < 1.0:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.CRITICAL,
+                reason=f"杠杆不能低于1x",
+                blocked_order=order
+            )
+        
+        return RiskCheckResult(True, RiskLevel.LOW, "杠杆检查通过")
+    
+    def _check_stop_loss(self, order: dict) -> RiskCheckResult:
+        """检查止损设置"""
+        stop_loss = order.get("stop_loss", 0)
+        
+        if stop_loss == 0 and order.get("action", "").upper() == "BUY":
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.CRITICAL,
+                reason="买入订单必须设置止损",
+                blocked_order=order
+            )
+        
+        if 0 < stop_loss < self.config.stop_loss_min:
+            return RiskCheckResult(
+                allowed=True,
+                risk_level=RiskLevel.MEDIUM,
+                reason=f"止损({stop_loss*100:.1f}%)低于最小限制({self.config.stop_loss_min*100:.1f}%)，已调整",
+                modifications={"stop_loss": self.config.stop_loss_min}
+            )
+        
+        if stop_loss > self.config.stop_loss_max:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.HIGH,
+                reason=f"止损({stop_loss*100:.1f}%)超过最大限制({self.config.stop_loss_max*100:.1f}%)",
+                blocked_order=order
+            )
+        
+        return RiskCheckResult(True, RiskLevel.LOW, "止损检查通过")
+    
+    def _check_profit_loss_limits(self, order: dict, account_info: dict) -> RiskCheckResult:
+        """检查盈亏限制"""
+        # 检查单日亏损
+        if self._daily_stats["total_loss"] >= self.config.max_daily_loss:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.CRITICAL,
+                reason=f"单日亏损已达限制({self.config.max_daily_loss*100:.1f}%)，禁止新订单",
+                blocked_order=order
+            )
+        
+        # 检查单笔亏损
+        if order.get("risk_amount", 0) > self.config.max_single_loss:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.HIGH,
+                reason=f"单笔风险金额超限",
+                blocked_order=order
+            )
+        
+        return RiskCheckResult(True, RiskLevel.LOW, "盈亏限制检查通过")
+    
+    def _check_trading_hours(self) -> RiskCheckResult:
+        """检查交易时段"""
+        current_hour = datetime.now().hour
+        
+        if current_hour in self.config.blackout_hours:
+            return RiskCheckResult(
+                allowed=False,
+                risk_level=RiskLevel.HIGH,
+                reason=f"当前时段({current_hour}:00)禁止交易",
+                blocked_order=None
+            )
+        
+        return RiskCheckResult(True, RiskLevel.LOW, "交易时段允许")
+    
+    def _check_circuit_breaker(self, order: dict) -> RiskCheckResult:
+        """检查熔断状态"""
+        symbol = order.get("symbol", "")
+        
+        if symbol in self._circuit_breakers:
+            cb = self._circuit_breakers[symbol]
+            if cb["triggered"]:
+                return RiskCheckResult(
+                    allowed=False,
+                    risk_level=RiskLevel.CRITICAL,
+                    reason=f"熔断触发: {cb['reason']}",
+                    blocked_order=order
+                )
+        
+        return RiskCheckResult(True, RiskLevel.LOW, "熔断检查通过")
+    
+    def _calculate_risk_score(self, order: dict, account_info: dict) -> float:
+        """计算风险评分 (0-100)"""
+        score = 0.0
+        
+        # 杠杆权重
+        leverage = order.get("leverage", 1.0)
+        if leverage > 1.5:
+            score += 20
+        elif leverage > 1.0:
+            score += 10
+        
+        # 仓位权重
+        position_ratio = order.get("size", 0) / account_info.get("total_balance", 1)
+        if position_ratio > 0.05:
+            score += 20
+        elif position_ratio > 0.02:
+            score += 10
+        
+        # 持仓时间权重
+        if order.get("timeframe", "").endswith("1h"):
+            score += 10
+        
+        # 市场状态权重
+        fear_index = account_info.get("fear_index", 50)
+        if fear_index < 20:  # 极度恐惧
+            score += 30
+        elif fear_index < 40:
+            score += 20
+        elif fear_index > 80:  # 极度贪婪
+            score += 15
+        
+        # 历史表现权重
+        daily_loss_ratio = self._daily_stats["total_loss"]
+        if daily_loss_ratio > 0.05:
+            score += 20
+        
+        return min(score, 100)
+    
+    async def apply_modifications(self, order: dict, result: RiskCheckResult) -> dict:
+        """应用风控修改到订单"""
+        if not result.modifications:
+            return order
+        
+        modified_order = order.copy()
+        for key, value in result.modifications.items():
+            modified_order[key] = value
+            logger.info(f"风控修改订单: {key} = {value}")
+        
+        return modified_order
+    
+    def record_trade_result(self, order: dict, pnl: float):
+        """记录交易结果"""
+        self._daily_stats["total_trades"] += 1
+        if pnl < 0:
+            self._daily_stats["total_loss"] += abs(pnl) / self._get_total_balance()
+    
+    def _get_total_balance(self) -> float:
+        """获取总余额"""
+        # 这里应该从账户信息获取
+        return 100000.0
+    
+    def reset_daily_stats(self):
+        """重置每日统计"""
+        self._daily_stats = {
+            "total_trades": 0,
+            "total_loss": 0.0,
+            "blocked_orders": 0,
+            "last_reset": datetime.now()
+        }
+    
+    def trigger_circuit_breaker(self, symbol: str, reason: str, duration_minutes: int = 60):
+        """触发熔断"""
+        self._circuit_breakers[symbol] = {
+            "triggered": True,
+            "reason": reason,
+            "triggered_at": datetime.now(),
+            "duration": duration_minutes
+        }
+        logger.warning(f"⚡ 熔断触发: {symbol} - {reason}")
+    
+    def reset_circuit_breaker(self, symbol: str):
+        """重置熔断"""
+        if symbol in self._circuit_breakers:
+            del self._circuit_breakers[symbol]
+            logger.info(f"✅ 熔断重置: {symbol}")
+    
+    def update_config(self, **kwargs):
+        """更新风控配置"""
+        for key, value in kwargs.items():
+            if hasattr(self.config, key):
+                setattr(self.config, key, value)
+                logger.info(f"风控配置更新: {key} = {value}")
+    
+    def get_status(self) -> dict:
+        """获取风控状态"""
+        return {
+            "daily_trades": self._daily_stats["total_trades"],
+            "daily_loss": self._daily_stats["total_loss"],
+            "blocked_orders": self._daily_stats["blocked_orders"],
+            "active_circuit_breakers": list(self._circuit_breakers.keys()),
+            "config": {
+                "max_leverage": self.config.max_leverage,
+                "max_position": self.config.max_single_position,
+                "max_exposure": self.config.max_total_exposure,
+            }
         }
 
-        # 输出到日志
-        print(f"[Audit] {log_entry}")
 
-        # TODO: 写入数据库
-        # audit_store.save(log_entry)
-
-    def cancel(self, order_id: str) -> bool:
-        """取消订单"""
-        if order_id not in self._orders:
-            return False
-
-        order = self._orders[order_id]
-        if order.status not in [OrderStatus.PENDING, OrderStatus.SUBMITTED]:
-            return False
-
-        # TODO: 调用交易所取消
-        order.status = OrderStatus.CANCELLED
-        order.updated_at = datetime.utcnow()
-        self._audit_log(order, "cancelled", {})
-
-        return True
-
-    def get_order(self, order_id: str) -> Optional[Order]:
-        """获取订单信息"""
-        return self._orders.get(order_id)
-
-    def get_orders(
-        self,
-        symbol: Optional[str] = None,
-        status: Optional[OrderStatus] = None,
-        limit: int = 100,
-    ) -> list[Order]:
-        """查询订单"""
-        orders = list(self._orders.values())
-
-        if symbol:
-            orders = [o for o in orders if o.symbol == symbol]
-        if status:
-            orders = [o for o in orders if o.status == status]
-
-        return orders[:limit]
+# 单例实例
+_risk_engine: Optional[RiskEngine] = None
 
 
-# ============ 异常类 ============
-
-class RiskRejected(Exception):
-    """订单被风控拒绝"""
-
-    def __init__(self, order_id: str, result: RiskCheckResult):
-        self.order_id = order_id
-        self.result = result
-        super().__init__(f"订单 {order_id} 被风控拒绝: {result.message}")
-
-
-class OrderExecutionError(Exception):
-    """订单执行错误"""
-
-    def __init__(self, order_id: str, message: str):
-        self.order_id = order_id
-        super().__init__(f"订单 {order_id} 执行失败: {message}")
-
-
-# ============ 便捷函数 ============
-
-def create_market_order(
-    symbol: str,
-    side: str,
-    size: float,
-    leverage: float = 1.0,
-    source: str = "unknown",
-    strategy_id: Optional[str] = None,
-    trace_id: Optional[str] = None,
-) -> OrderRequest:
-    """创建市价单"""
-    return OrderRequest(
-        symbol=symbol,
-        side=OrderSide(side),
-        order_type=OrderType.MARKET,
-        size=size,
-        leverage=leverage,
-        source=source,
-        strategy_id=strategy_id,
-        trace_id=trace_id,
-    )
-
-
-def create_limit_order(
-    symbol: str,
-    side: str,
-    size: float,
-    price: float,
-    leverage: float = 1.0,
-    source: str = "unknown",
-    strategy_id: Optional[str] = None,
-    trace_id: Optional[str] = None,
-) -> OrderRequest:
-    """创建限价单"""
-    return OrderRequest(
-        symbol=symbol,
-        side=OrderSide(side),
-        order_type=OrderType.LIMIT,
-        size=size,
-        price=price,
-        leverage=leverage,
-        source=source,
-        strategy_id=strategy_id,
-        trace_id=trace_id,
-    )
+def get_risk_engine() -> RiskEngine:
+    """获取风控引擎单例"""
+    global _risk_engine
+    if _risk_engine is None:
+        _risk_engine = RiskEngine()
+    return _risk_engine

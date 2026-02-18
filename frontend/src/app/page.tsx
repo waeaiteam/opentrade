@@ -3,6 +3,56 @@
 import { useEffect, useState } from 'react';
 import styles from './page.module.css';
 
+// ⚠️ 免责声明组件
+function Disclaimer() {
+  const [accepted, setAccepted] = useState(false);
+  const [showModal, setShowModal] = useState(true);
+
+  if (accepted) return null;
+
+  return (
+    <div className={styles.disclaimerOverlay}>
+      <div className={styles.disclaimerModal}>
+        <h2>⚠️ 重要风险提示</h2>
+        <div className={styles.disclaimerContent}>
+          <p><strong>郑重声明</strong>：本系统仅用于<strong>教育研究与技术交流目的</strong>，不构成任何投资建议、财务咨询或交易推荐。</p>
+          
+          <p><strong>风险提示</strong>：</p>
+          <ul>
+            <li>加密货币交易存在极高的市场风险，可能导致全部亏损</li>
+            <li>历史表现不代表未来收益</li>
+            <li>请使用模拟盘验证策略效果</li>
+            <li>请使用您完全能够承受损失的资金</li>
+            <li>您需自行承担所有交易亏损</li>
+          </ul>
+          
+          <p><strong>使用本系统即视为您已：</strong></p>
+          <ul>
+            <li>充分了解加密货币交易的风险</li>
+            <li>同意风险自担条款</li>
+            <li>遵守当地的法律法规</li>
+          </ul>
+        </div>
+        <div className={styles.disclaimerActions}>
+          <button 
+            className={styles.btnAccept}
+            onClick={() => {
+              setAccepted(true);
+              setShowModal(false);
+              localStorage.setItem('opentrade_disclaimer_accepted', 'true');
+            }}
+          >
+            我已了解风险，继续使用
+          </button>
+          <a href="https://docs.opentrade.ai/risks" className={styles.btnLearnMore}>
+            了解更多
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Trade {
   id: string;
   symbol: string;
@@ -69,6 +119,8 @@ export default function Home() {
 
   return (
     <main className={styles.main}>
+      <Disclaimer />
+      
       <header className={styles.header}>
         <h1>🚀 OpenTrade</h1>
         <p>Enterprise AI Trading System</p>
