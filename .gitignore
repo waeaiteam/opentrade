@@ -44,6 +44,26 @@ config.yaml
 logs/
 *.log
 
+# Sensitive - CRITICAL SECURITY
+.env
+.env.*
+.env_*
+*.key
+*.pem
+*.crt
+secrets/
+keys/
+vault/
+token.json
+credentials.json
+
+# API Keys & Tokens - NEVER COMMIT
+*apikey*
+*secret*
+*password*
+" >> /root/opentrade/.gitignore
+cat /root/opentrade/.gitignore | tail -15
+
 # Testing
 .pytest_cache/
 .coverage
