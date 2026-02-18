@@ -280,3 +280,59 @@ class TradeExecutor:
     @property
     def is_running(self) -> bool:
         return self._running
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    @property
+    def balance(self) -> dict:
+        """获取余额"""
+        return getattr(self, '_balance', {})
+
+    async def event_stream(self):
+        """事件流
+
+        生成器，产出交易事件
+        """
+        while True:
+            try:
+                # 等待新事件
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
+
+    async def _emit_status_event(self, status: str, message: str = ""):
+        """发射状态事件"""
+        event = {
+            "type": "status",
+            "data": {
+                "status": status,
+                "message": message,
+                "mode": self.mode,
+                "positions_count": len(self.positions),
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        return event
+
+    async def _emit_trade_event(self, trade):
+        """发射交易事件"""
+        event = {
+            "type": "trade",
+            "data": {
+                "id": str(trade.id) if hasattr(trade, 'id') else str(uuid4()),
+                "symbol": trade.symbol if hasattr(trade, 'symbol') else "",
+                "side": str(trade.side) if hasattr(trade, 'side') else "",
+                "action": str(trade.action) if hasattr(trade, 'action') else "",
+                "price": trade.entry_price if hasattr(trade, 'entry_price') else 0,
+                "size": trade.size if hasattr(trade, 'size') else 0,
+                "pnl": trade.pnl if hasattr(trade, 'pnl') else 0,
+                "status": str(trade.status) if hasattr(trade, 'status') else "",
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        return event
+
+if __name__ == "__main__":
+    # 测试
+    pass

@@ -273,3 +273,80 @@ class CCXTExchangePlugin(ExchangePlugin):
             config["options"] = {"defaultType": "future"}
 
         return exchange_class(config)
+
+@register_exchange("hyperliquid")
+class HyperliquidPlugin(ExchangePlugin):
+    """Hyperliquid 交易所插件
+
+    Hyperliquid 特点:
+    - 使用 USDC 作为保证金
+    - 需要 wallet 地址
+    - 支持永续合约
+    - 高性能交易
+    """
+
+    def __init__(self, config: dict = None):
+        super().__init__("hyperliquid", config)
+        self._api_key = config.get("api_key") if config else None
+        self._api_secret = config.get("api_secret") if config else None
+        self._wallet_address = config.get("wallet_address") if config else None
+
+    @property
+    def exchange_id(self) -> str:
+        return "hyperliquid"
+
+    def _create_exchange(self) -> ccxt.Exchange:
+        """创建 Hyperliquid 交易所实例"""
+        config = {
+            "enableRateLimit": True,
+            "options": {
+                "defaultType": "swap",
+            },
+        }
+
+        if self._api_key:
+            config["apiKey"] = self._api_key
+        if self._api_secret:
+            config["secret"] = self._api_secret
+        if self._wallet_address:
+            config["wallet"] = self._wallet_address
+
+        return ccxt.hyperliquid(config)
+
+    async def fetch_positions(self) -> list[PositionInfo]:
+        """获取 Hyperliquid 持仓 (特殊处理)"""
+        if not self._exchange:
+            await self.initialize()
+
+        positions = await self._exchange.fetch_positions()
+
+        result = []
+        for p in positions:
+            result.append(PositionInfo(
+                symbol=p.get("symbol", ""),
+                side=p.get("side", ""),
+                size=abs(p.get("contracts", p.get("amount", 0))),
+                entry_price=p.get("entryPrice", 0),
+                mark_price=p.get("markPrice", 0),
+                liquidation_price=p.get("liquidationPrice", 0),
+                pnl=p.get("unrealizedPnl", 0),
+            ))
+
+        return result
+
+    async def fetch_balance(self) -> dict:
+        """获取 Hyperliquid 余额"""
+        if not self._exchange:
+            await self.initialize()
+
+        balance = await self._exchange.fetch_balance()
+        return {
+            "total": balance.get("total", {}),
+            "free": balance.get("free", {}),
+            "used": balance.get("used", {}),
+            "USDC": {
+                "total": balance.get("USDC", {}).get("total", 0),
+                "free": balance.get("USDC", {}).get("free", 0),
+                "used": balance.get("USDC", {}).get("used", 0),
+            },
+        }

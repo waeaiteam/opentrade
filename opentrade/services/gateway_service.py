@@ -13,20 +13,61 @@ from opentrade.core.config import get_config
 from opentrade.services.trade_executor import TradeExecutor
 
 
+"""
+OpenTrade 网关服务
+"""
+
+import asyncio
+import json
+from datetime import datetime
+from typing import Callable, Set
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+
+from opentrade.core.config import get_config
+from opentrade.services.trade_executor import TradeExecutor
+
+
+class EventType:
+    """事件类型"""
+    TRADE = "trade"
+    ORDER = "order"
+    POSITION = "position"
+    BALANCE = "balance"
+    SIGNAL = "signal"
+    ALERT = "alert"
+    ERROR = "error"
+    STATUS = "status"
+
+
 class GatewayService:
     """网关服务
 
     WebSocket 控制平面，
     负责接收指令、转发消息、管理会话。
+    支持事件推送和订阅。
     """
 
     def __init__(self):
         self.config = get_config()
         self.app = FastAPI(title="OpenTrade Gateway")
         self._connections: dict[str, WebSocket] = {}
+        self._subscribers: dict[str, Set[WebSocket]] = {
+            EventType.TRADE: set(),
+            EventType.ORDER: set(),
+            EventType.POSITION: set(),
+            EventType.BALANCE: set(),
+            EventType.SIGNAL: set(),
+            EventType.ALERT: set(),
+            EventType.ERROR: set(),
+            EventType.STATUS: set(),
+        }
         self._executor: TradeExecutor | None = None
-
+        self._event_queue: asyncio.Queue = asyncio.Queue()
+        
         self._setup_routes()
+        self._start_event_broadcaster()
 
     def _setup_routes(self):
         """设置路由"""
@@ -43,6 +84,10 @@ class GatewayService:
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
             await self._handle_websocket(websocket)
+
+        @self.app.websocket("/ws/events")
+        async def websocket_events(websocket: WebSocket):
+            await self._handle_event_stream(websocket)
 
         # REST 端点
         @self.app.get("/health")
@@ -63,6 +108,18 @@ class GatewayService:
                 return {"positions": list(self._executor.positions.values())}
             return {"positions": []}
 
+        @self.app.get("/api/v1/orders")
+        async def orders():
+            if self._executor:
+                return {"orders": list(self._executor.orders.values())}
+            return {"orders": []}
+
+        @self.app.get("/api/v1/balance")
+        async def balance():
+            if self._executor:
+                return {"balance": self._executor.balance}
+            return {"balance": {}}
+
         @self.app.post("/api/v1/trade/start")
         async def start_trading(mode: str = "paper"):
             if self._executor and self._executor.is_running:
@@ -70,6 +127,9 @@ class GatewayService:
 
             self._executor = TradeExecutor(mode=mode)
             await self._executor.connect()
+
+            # 启动事件监听
+            asyncio.create_task(self._listen_executor_events())
 
             # 启动交易循环
             asyncio.create_task(self._executor.start())
@@ -84,7 +144,93 @@ class GatewayService:
 
             return {"status": "ok"}
 
-    async def _handle_websocket(self, websocket: WebSocket):
+        @self.app.get("/api/v1/events")
+        async def list_events():
+            """列出可用的事件类型"""
+            return {
+                "events": list(self._subscribers.keys()),
+                "subscriptions": {
+                    event: len(subs) for event, subs in self._subscribers.items()
+                }
+            }
+
+    async def _listen_executor_events(self):
+        """监听执行器事件"""
+        if not self._executor:
+            return
+        
+        try:
+            async for event in self._executor.event_stream():
+                await self._event_queue.put(event)
+        except asyncio.CancelledError:
+            pass
+
+    async def _start_event_broadcaster(self):
+        """启动事件广播器"""
+        while True:
+            try:
+                event = await self._event_queue.get()
+                await self._broadcast_event(event)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[red]事件广播错误: {e}[/red]")
+
+    async def _broadcast_event(self, event: dict):
+        """广播事件到所有订阅者"""
+        event_type = event.get("type", "unknown")
+        subscribers = self._subscribers.get(event_type, set())
+        
+        # 广播到特定类型订阅者
+        for ws in subscribers.copy():
+            try:
+                await ws.send_json(event)
+            except Exception:
+                subscribers.discard(ws)
+
+        # 广播到所有订阅者
+        all_subs = set()
+        for subs in self._subscribers.values():
+            all_subs.update(subs)
+        
+        for ws in all_subs.copy():
+            if ws not in subscribers:
+                try:
+                    await ws.send_json(event)
+                except Exception:
+                    all_subs.discard(ws)
+
+    async def _handle_event_stream(self, websocket: WebSocket):
+        """处理事件流订阅"""
+        await websocket.accept()
+        
+        # 订阅所有事件
+        self._subscribers[EventType.TRADE].add(websocket)
+        self._subscribers[EventType.ORDER].add(websocket)
+        self._subscribers[EventType.POSITION].add(websocket)
+        self._subscribers[EventType.SIGNAL].add(websocket)
+        
+        try:
+            while True:
+                # 保持连接活跃
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            # 取消订阅
+            for subs in self._subscribers.values():
+                subs.discard(websocket)
+
+    async def emit_event(self, event_type: str, data: dict):
+        """发射事件"""
+        event = {
+            "type": event_type,
+            "data": data,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        await self._event_queue.put(event)
+
+    async def _handle_websocket(self, websocket: WebSocket):    async def _handle_websocket(self, websocket: WebSocket):
         """处理 WebSocket 连接"""
         await websocket.accept()
 
