@@ -94,6 +94,9 @@ class DataService:
         """获取 K 线数据"""
         exchange = await self._get_exchange()
 
+        # 处理 Hyperliquid 交易对格式
+        symbol = self._format_symbol_for_exchange(symbol, exchange.id)
+
         ohlcv = await exchange.fetch_ohlcv(
             symbol,
             timeframe=timeframe,
@@ -112,9 +115,27 @@ class DataService:
             for d in ohlcv
         ]
 
+    def _format_symbol_for_exchange(self, symbol: str, exchange_id: str) -> str:
+        """格式化交易对以适应不同交易所"""
+        # 移除标准后缀
+        base_symbol = symbol.replace("/USDT", "").replace("/USD", "").replace("-USD", "")
+
+        if exchange_id == "hyperliquid":
+            # Hyperliquid 使用 H: 前缀
+            return f"H:{base_symbol}"
+        elif exchange_id in ["binance", "bybit", "okx"]:
+            # 这些交易所使用 BTC/USDT 格式
+            return f"{base_symbol}/USDT"
+        elif exchange_id == "coinbase":
+            # Coinbase 使用 BTC-USD 格式
+            return f"{base_symbol}-USD"
+
+        return symbol
+
     async def fetch_ticker(self, symbol: str) -> dict:
         """获取 ticker 数据"""
         exchange = await self._get_exchange()
+        symbol = self._format_symbol_for_exchange(symbol, exchange.id)
         ticker = await exchange.fetch_ticker(symbol)
         return {
             "last": ticker.get("last"),
@@ -129,6 +150,7 @@ class DataService:
     async def fetch_orderbook(self, symbol: str, limit: int = 20) -> dict:
         """获取订单簿"""
         exchange = await self._get_exchange()
+        symbol = self._format_symbol_for_exchange(symbol, exchange.id)
         orderbook = await exchange.fetch_order_book(symbol, limit=limit)
         return {
             "bids": orderbook.get("bids", [])[:limit],
@@ -138,6 +160,7 @@ class DataService:
     async def fetch_funding(self, symbol: str) -> dict:
         """获取资金费率"""
         exchange = await self._get_exchange()
+        symbol = self._format_symbol_for_exchange(symbol, exchange.id)
         try:
             funding = await exchange.fetch_funding_rate(symbol)
             return {
@@ -262,6 +285,15 @@ class DataService:
                 "enableRateLimit": True,
             })
         return self._exchanges[self.config.exchange.name]
+
+    async def close(self):
+        """关闭所有交易所连接"""
+        for exchange in self._exchanges.values():
+            try:
+                await exchange.close()
+            except Exception:
+                pass
+        self._exchanges.clear()
 
     # 技术指标计算
     def _ema(self, data: list, period: int) -> float:

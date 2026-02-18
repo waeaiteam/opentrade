@@ -254,25 +254,26 @@ def calculate_sharpe(returns: list[float], risk_free: float = 0.0) -> float:
 
 @app.command()
 def run(
-    symbol: str = typer.Argument("BTC/USDT", help="Trading pair"),
-    strategy: str = typer.Argument("trend_following", help="Strategy type"),
-    start: Optional[str] = typer.Option(None, "--start", "-s", help="Start date (YYYY-MM-DD)"),
-    end: Optional[str] = typer.Option(None, "--end", "-e", help="End date (YYYY-MM-DD)"),
-    initial: float = typer.Option(10000.0, "--initial", "-i", help="Initial balance"),
+    start: str = typer.Argument(..., help="Start date (YYYY-MM-DD) [required]"),
+    end: Optional[str] = typer.Argument(None, help="End date (YYYY-MM-DD)"),
+    symbol: str = typer.Option("BTC/USDT", "--symbol", "-S", help="Trading pair"),
+    strategy: str = typer.Option("trend_following", "--strategy", "-s", help="Strategy type"),
+    capital: float = typer.Option(10000.0, "--capital", "-c", help="Initial capital"),
     fee: float = typer.Option(0.001, "--fee", "-f", help="Fee rate"),
+    report: bool = typer.Option(False, "--report", "-r", help="Generate report"),
 ):
     """
     Run backtest on a strategy
 
     Examples:
-        opentrade backtest BTC/USDT trend_following
-        opentrade backtest ETH/USDT mean_reversion --start 2024-01-01
-        opentrade backtest SOL/USDT rsi --initial 50000
+        opentrade backtest 2024-01-01 2024-02-01 --symbol BTC/USDT --strategy trend_following
+        opentrade backtest 2024-01-01 --symbol ETH/USDT --strategy mean_reversion
+        opentrade backtest 2024-01-01 2024-02-01 --capital 50000
     """
-    start_date = datetime.strptime(start, "%Y-%m-%d") if start else datetime.utcnow() - timedelta(days=30)
+    start_date = datetime.strptime(start, "%Y-%m-%d")
     end_date = datetime.strptime(end, "%Y-%m-%d") if end else datetime.utcnow()
 
-    engine = BacktestEngine(initial_balance=initial, fee_rate=fee)
+    engine = BacktestEngine(initial_balance=capital, fee_rate=fee)
 
     loop = asyncio.get_event_loop()
     result = loop.run_until_complete(

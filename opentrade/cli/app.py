@@ -286,6 +286,7 @@ def backtest(
     report: bool = Option(False, "-r", "--report", help="生成报告"),
 ):
     """回测策略"""
+    import asyncio
     from datetime import datetime
 
     from opentrade.services.backtest_service import BacktestService
@@ -301,22 +302,35 @@ def backtest(
 
     symbol_list = [s.strip() for s in symbols.split(",")]
 
-    results = service.run_backtest(
-        strategy_name=strategy,
-        start_date=datetime.fromisoformat(start),
-        end_date=datetime.fromisoformat(end) if end else None,
-        symbol=symbol_list,
-        initial_capital=capital,
-    )
+    # 使用 asyncio 运行异步方法
+    async def run_async():
+        return await service.run_backtest(
+            strategy_name=strategy,
+            start_date=datetime.fromisoformat(start),
+            end_date=datetime.fromisoformat(end) if end else None,
+            symbol=symbol_list[0] if symbol_list else "BTC/USDT",
+            initial_capital=capital,
+        )
+
+    results = asyncio.run(run_async())
+
+    # 转换结果为字典
+    results_dict = {
+        "total_trades": results.total_trades,
+        "win_rate": results.win_rate,
+        "total_return": results.total_pnl_percent,
+        "max_drawdown": results.max_drawdown,
+        "sharpe_ratio": results.sharpe_ratio,
+    }
 
     # 显示结果
     print(Panel(
         f"[green]回测完成！[/green]\n\n"
-        f"总交易次数: {results['total_trades']}\n"
-        f"胜率: {results['win_rate']:.2%}\n"
-        f"总收益: {results['total_return']:.2%}\n"
-        f"最大回撤: {results['max_drawdown']:.2%}\n"
-        f"夏普比率: {results['sharpe_ratio']:.2f}",
+        f"总交易次数: {results_dict['total_trades']}\n"
+        f"胜率: {results_dict['win_rate']:.2%}\n"
+        f"总收益: {results_dict['total_return']:.2%}\n"
+        f"最大回撤: {results_dict['max_drawdown']:.2%}\n"
+        f"夏普比率: {results_dict['sharpe_ratio']:.2f}",
         title="回测结果"
     ))
 
